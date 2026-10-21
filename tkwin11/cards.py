@@ -1,6 +1,8 @@
 """Shared card interaction; passive cards stay outside the keyboard tab order."""
 import tkinter as tk
 from tkinter import ttk
+from .dpi import additive_styles
+from .tcl_bridge import on_map
 from .motion import Tween
 
 
@@ -17,7 +19,7 @@ class CardInteraction:
         root=card._root()
         if not getattr(root,'_dynamic_cards_installed',False):
             root._dynamic_cards_installed=True
-            root.bind_all('<Map>',_mapped_card,add='+')
+            on_map(root,_mapped_card)
 
     def attach(self):
         self.job=None
@@ -108,7 +110,8 @@ class CardInteraction:
                 if isinstance(widget,ttk.Label):widget.configure(background=color)
                 elif isinstance(widget,ttk.Frame):
                     if name not in declared:
-                        declared.add(name);ttk.Style(c).configure(name,background=color)
+                        declared.add(name)
+                        with additive_styles(c):ttk.Style(c).configure(name,background=color)
                     widget.configure(style=name)
         if before==fill or force:self.tween.cancel();paint(1)
         else:self.tween.start(0.,1.,paint,duration=83)
@@ -118,8 +121,8 @@ class CardInteraction:
             self.card.after_cancel(self.job);self.job=None
 
 
-def _mapped_card(event):
-    widget=getattr(event.widget,'master',None)
+def _mapped_card(widget):
+    widget=getattr(widget,'master',None)
     while widget is not None:
         controller=getattr(widget,'interaction',None)
         if controller is not None and controller.job is None:

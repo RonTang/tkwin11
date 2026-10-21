@@ -6,6 +6,7 @@ class Expansion:
     def __init__(self,owner,button,show,hide):
         self.owner=owner;self.button=button;self.show=show;self.hide=hide
         self.animator=Tween(owner);self.height=0.;self.target=0;self.job=owner.after_idle(self.initialize)
+        self.measuring=False
         self.arrow_animator=Tween(owner);self.angle=float(owner.opened)
         owner.body.bind('<Configure>',self.resized,add='+')
         owner.bind('<Destroy>',self.destroy,add='+')
@@ -63,7 +64,9 @@ class Expansion:
         if not o.opened:
             focus=o.focus_get()
             if focus is not None and str(focus).startswith(str(o.body)+'.'):self.button.focus_set()
-        self.show();o.update_idletasks()
+        self.show();self.measuring=True
+        try:o.update_idletasks()
+        finally:self.measuring=False
         self.target=self.measure() if o.opened else 0
         def done():
             if not o.opened:self.hide()
@@ -74,6 +77,13 @@ class Expansion:
             self.job=self.owner.after_idle(self.retarget)
     def retarget(self):
         self.job=None
-        if self.owner.opened:self.sync()
+        # Inside sync()'s layout pass: it measures and animates right after.
+        if not self.owner.opened or self.measuring:return
+        if self.animator.job is None:
+            # Content resized while open (late layout, wrapping): follow it at
+            # once. A 250 ms tween here relayouts the whole page every frame
+            # and, rounding, jitters the card by a pixel.
+            self.target=self.measure();self.paint(self.target)
+        else:self.sync()
     def destroy(self,event):
         if event.widget is self.owner and self.job is not None:self.owner.after_cancel(self.job);self.job=None

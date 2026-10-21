@@ -161,7 +161,10 @@ class ResponsiveTable:
         tree.bind('<Configure>',self.schedule,add='+')
         tree.bind('<<ThemeChanged>>',self.theme_changed,add='+')
         tree.bind('<Destroy>',self.cleanup,add='+')
-        self.schedule()
+        # Mark the stretching column now. Treeview columns stretch by default,
+        # so a table laid out before it is shown (FluentPage.prepare) would
+        # otherwise spread its final width over every column for good.
+        self.refresh()
 
     def schedule(self,event=None):
         if self.job is None:self.job=self.tree.after_idle(self.refresh)
@@ -179,7 +182,6 @@ class ResponsiveTable:
     def refresh(self):
         self.job=None
         tree=self.tree
-        if not tree.winfo_ismapped():return
         columns=tuple(tree['columns'])
         for column in columns:self.preferred.setdefault(column,tree.column(column,'width'))
         self.preferred={key:value for key,value in self.preferred.items() if key in columns}
@@ -201,6 +203,7 @@ class ResponsiveTable:
         for column in columns:
             desired=bool(visible and column==visible[-1])
             if bool(tree.column(column,'stretch'))!=desired:tree.column(column,stretch=desired)
+        if not tree.winfo_ismapped():return
         for orientation,view in [('horizontal',tree.xview),('vertical',tree.yview)]:
             bar=self.bars.get(orientation)
             if bar is None:continue

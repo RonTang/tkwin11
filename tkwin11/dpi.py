@@ -5,10 +5,11 @@ queries retain their source values; native widgets consume the DPI-specific view
 """
 import math
 from collections import OrderedDict
+from contextlib import contextmanager
 import sys
 import tkinter as tk
 from tkinter import ttk, font
-from .tcl_bridge import install_proxy, delete_callback
+from .tcl_bridge import install_proxy, delete_callback, install_lazy_theme_changed, on_map
 
 
 def _freeze(value):
@@ -28,6 +29,7 @@ class Resources:
         self.dirty=set();self.redraw_job=None
         self.image_users={}
         self.style_specs={}
+        self.additive=0  # depth of additive_styles() blocks
         self.locked_theme=None  # set by tkwin11.install(lock_theme=True)
         # Only mutating subcommands need Python. Queries such as style lookup,
         # font measure/metrics and image width stay native and allocation-free.
@@ -37,9 +39,15 @@ class Resources:
         install_proxy(self.tk,'image',self.image_command,'image__dpi_source',routed=('create','delete'))
         self.tk.call('rename','font','font__dpi_source')
         install_proxy(self.tk,'font',self.font_command,'font__dpi_source',routed=('configure','config'))
-        root.bind_all('<Map>',self.mapped,add='+')
+        # Lazy styles (animated controls, DPI clones) are written while pages
+        # are built; hidden cached pages then skip the relayout until shown.
+        install_lazy_theme_changed(self.tk)
+        on_map(root,self.mapped)
         root.bind_all('<Destroy>',self.destroyed,add='+')
-        root.bind_all('<Configure>',self.window_configured,add='+')
+        # Only toplevels matter: filter in Tcl so the resize of every child
+        # widget does not build a tkinter Event.
+        configured=root.register(self.toplevel_configured)
+        root.tk.call('bind','all','<Configure>','+if {[winfo toplevel %W] eq "%W"} {'+configured+' %W}')
         self.window_jobs={}
         if sys.platform=='win32':
             import ctypes
@@ -73,20 +81,30 @@ class Resources:
 
     def style_command(self,*args):
         # Every effective ttk::style configure/map/layout/element create makes
-        # ttk walk the whole widget tree (<<ThemeChanged>>) and relayout and
-        # redraw every ttk widget, hidden pages included. Drop no-op writes.
+        # ttk walk the widget tree (<<ThemeChanged>>) and relayout and redraw
+        # every displayed ttk widget (hidden ones when next mapped; see
+        # tcl_bridge). Drop no-op writes.
         if self.locked_theme and len(args)==3 and tuple(map(str,args[:2]))==('theme','use') and str(args[2])!=self.locked_theme:
             return ''
         mutating=len(args)>=3 and (args[0]=='layout' or args[0] in ('configure','map') and len(args)>=4)
         if mutating and args[0]!='layout' and self.unchanged(args):return ''
         result=self.raw_style(*args)
-        if len(args)>3 and args[:2]==('element','create'):
+        element=len(args)>3 and args[:2]==('element','create')
+        if element:
             self.elements[args[2]]=args[3:]
+        if mutating or element or len(args)>2 and args[0]=='theme' and args[1] in ('create','settings','use'):
+            self.mark_write()
         if mutating and not str(args[1]).startswith('DPI'):
             # Lazy styles (animated buttons/switches) are recorded as they appear.
             for dpi,base in list(self.styles):
                 if args[1] in self.ancestors(base):self.make_style(base,dpi,refresh=True)
         return result
+
+    def mark_write(self,additive=None):
+        # Read by ::ttk::ThemeChanged (tcl_bridge): a round of additive writes
+        # only is not broadcast to the widget tree.
+        if additive is None:additive=self.additive>0
+        self.tk.call('set','::tkwin11::additive' if additive else '::tkwin11::other',1)
 
     def same(self,a,b):
         call=self.tk.call
@@ -245,6 +263,7 @@ class Resources:
             else:args[i+1]=self.option(key,args[i+1],dpi)
         self.raw_style('element','create',target,*args)
         self.cloned_elements.add(target)
+        self.mark_write(True)
         return target
 
     def make_style(self,base,dpi,refresh=False):
@@ -279,12 +298,15 @@ class Resources:
         frozen=(_freeze(config),_freeze(mapped),_freeze(spec))
         previous=self.style_specs.get((dpi,base))
         self.style_specs[(dpi,base)]=frozen
+        wrote=False
         if previous is None or previous[0]!=frozen[0]:
-            if config:self.raw_style('configure',name,*config)
+            if config:self.raw_style('configure',name,*config);wrote=True
         if previous is None or previous[1]!=frozen[1]:
-            for key,entries in mapped:self.raw_style('map',name,key,entries)
+            for key,entries in mapped:self.raw_style('map',name,key,entries);wrote=True
         if previous is None or previous[2]!=frozen[2]:
-            self.raw_style('layout',name,spec)
+            self.raw_style('layout',name,spec);wrote=True
+        # A new clone has no widgets yet; changing one in use needs the sweep.
+        if wrote:self.mark_write(previous is None or self.additive>0)
         # Heading and tab substyles are looked up relative to the widget style.
         for suffix in ('.Heading','.Tab'):
             if suffix=='.Heading' and base.endswith('Treeview') or suffix=='.Tab' and base.endswith('TNotebook'):
@@ -298,9 +320,8 @@ class Resources:
             return str(widget)==path or str(widget).startswith(path+'.') or widget in chrome.resize_handles.values()
         return False
 
-    def mapped(self,event):
-        widget=event.widget
-        self.window_configured(event)
+    def mapped(self,widget):
+        self.window_configured(widget)
         if isinstance(widget,tk.Misc) and not isinstance(widget,(tk.Tk,tk.Toplevel)):
             first=str(widget) not in self.widgets
             self.attach(widget)
@@ -308,8 +329,11 @@ class Resources:
                 callback=getattr(widget,'_tkwin11_dpi_changed',None)
                 if callback is not None:callback(self.window_dpi(widget.winfo_toplevel()))
 
-    def window_configured(self,event):
-        window=event.widget
+    def toplevel_configured(self,path):
+        try:self.window_configured(self.root.nametowidget(path))
+        except KeyError:pass
+
+    def window_configured(self,window):
         if not isinstance(window,(tk.Tk,tk.Toplevel)) or not hasattr(self,'user32'):return
         if getattr(window,'_window_chrome',None) is not None:return
         path=str(window)
@@ -507,6 +531,21 @@ class WidgetResources:
         for name in self.sources:
             users=self.resources.image_users.get(name,set());users.discard(self)
             if not users:self.resources.image_users.pop(name,None)
+
+
+@contextmanager
+def additive_styles(widget):
+    """Flag style writes that only declare new names for one widget.
+
+    Pooled animation slots are new element/layout names, and the widget that
+    adopts one relayouts itself on ``configure -style``. ttk would still send
+    <<ThemeChanged>> to every visible widget for each round of such writes.
+    """
+    resources=getattr(widget._root(),'_dpi_resources',None)
+    if resources is not None:resources.additive+=1
+    try:yield
+    finally:
+        if resources is not None:resources.additive-=1
 
 
 def install(root):

@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 from .button import ButtonController
 from .core import PALETTE, _raster, _rgb
+from .dpi import additive_styles
+from .tcl_bridge import on_map
 from .motion import Tween, blend
 
 
@@ -30,7 +32,8 @@ class SelectionController(ButtonController):
         if self.slot is None:
             serial=len(pool)+1;image=tk.PhotoImage(master=self.root,width=round(28*self.scale),height=round(28*self.scale))
             element=f'ChoiceMotion{serial}.indicator'
-            ttk.Style(widget).element_create(element,'image',image,width=image.width(),height=image.height(),sticky='')
+            with additive_styles(widget):
+                ttk.Style(widget).element_create(element,'image',image,width=image.width(),height=image.height(),sticky='')
             self.slot={'serial':serial,'element':element,'face':image,'used':False};pool.append(self.slot)
         self.slot['used']=True;self.face=self.slot['face'];self.element=self.slot['element'];self.serial=self.slot['serial']
         widget._tkwin11_choice=self
@@ -60,12 +63,14 @@ class SelectionController(ButtonController):
         self.style=f'ChoiceMotion{self.serial}.{self.base}'
         prefix='Radiobutton' if self.kind=='radio' else 'Checkbutton'
         layouts=self.slot.setdefault('layouts',set())
-        if self.base not in layouts:
-            # Declared once per pooled slot; repeats would relayout the whole app.
-            layouts.add(self.base)
-            ttk.Style(self.widget).layout(self.style,[(prefix+'.padding',{'sticky':'nsew','children':[
-                (self.element,{'side':'left'}),(prefix+'.label',{'side':'left','sticky':'w'})]})])
-        self.adapter.values['style']=self.style;self.adapter.apply();self.schedule()
+        with additive_styles(self.widget):
+            if self.base not in layouts:
+                # Declared once per pooled slot; repeats would relayout the whole app.
+                layouts.add(self.base)
+                ttk.Style(self.widget).layout(self.style,[(prefix+'.padding',{'sticky':'nsew','children':[
+                    (self.element,{'side':'left'}),(prefix+'.label',{'side':'left','sticky':'w'})]})])
+            self.adapter.values['style']=self.style;self.adapter.apply()
+        self.schedule()
 
     def variable_changed(self,*args):
         if args and args[-1]=='unset':self.variable=None
@@ -145,7 +150,7 @@ def attach_selection(widget):
 
 def install_selection(root):
     if not getattr(root,'_selection_installed',False):
-        root.bind_all('<Map>',lambda e:attach_selection(e.widget),add='+');root._selection_installed=True
+        on_map(root,attach_selection);root._selection_installed=True
     def walk(widget):
         attach_selection(widget)
         for child in widget.winfo_children():walk(child)

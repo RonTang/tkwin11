@@ -1,7 +1,7 @@
 """Shared dropdown behavior for original ttk and public themed entry points."""
 import tkinter as tk
 from tkinter import ttk
-from .tcl_bridge import install_proxy, delete_callback
+from .tcl_bridge import install_proxy, delete_callback, on_map
 
 
 class DropdownController:
@@ -161,7 +161,7 @@ def install_dropdown_compatibility(root):
         install_proxy(root.tk,'ttk::combobox::Post',post,native)
         root._combobox_post_redirected=True
     if not getattr(root,'_dropdown_compatibility_installed',False):
-        root.bind_all('<Map>',lambda event:attach_dropdown(event.widget),add='+')
+        on_map(root,attach_dropdown)
         root._dropdown_compatibility_installed=True
     def walk(widget):
         attach_dropdown(widget)

@@ -185,14 +185,36 @@ class Demo(tk.Tk):
         self.status = tk.StringVar(self, value='就绪')
         self.motion = tk.BooleanVar(self, value=True)
         self.motion.trace_add('write', lambda *_: setattr(self, 'motion_enabled', self.motion.get()))
-        mono = 'Cascadia Mono' if 'Cascadia Mono' in tkfont.families(self) else 'Consolas'
+        mono = 'Cascadia Mono' if tkfont.Font(self, family='Cascadia Mono').actual('family') == 'Cascadia Mono' else 'Consolas'
         self.mono = tkfont.Font(self, family=mono, size=10)
         self.styles()
         self.build()
         self.position()
-        self.update_idletasks()
-        self.open(page if page in self.info else 'home')
+        self.reveal(page if page in self.info else 'home')
+
+    def reveal(self, page):
+        """Show the window only after Tk has applied its size and laid it out.
+
+        Once the native window exists, Tk applies wm geometry at the first map,
+        so a withdrawn window is laid out at 200x200 and the first visible
+        frames would show the title bar, sidebar and page still resizing. On
+        Windows the window is mapped DWM-cloaked (laid out, not composed).
+        """
+        cloak = None
+        if sys.platform == 'win32':
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            def cloak(on):
+                value = ctypes.c_int(on)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 13, ctypes.byref(value), 4)  # DWMWA_CLOAK
+            cloak(1)
         self.deiconify()
+        self.update()       # real size, then the title bar chrome attaches
+        self.update()
+        self.open(page)
+        self.update_idletasks()
+        if cloak is not None:
+            cloak(0)
 
     # ---------------------------------------------------------------- shell
     def styles(self):

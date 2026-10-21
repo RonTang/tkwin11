@@ -68,21 +68,54 @@ def _patch(root, fill, border, surrounding, radius, height=80, width=192):
 
 
 def _raster(root, width, height, sample, transparent=None):
-    image = tk.PhotoImage(master=root, width=width, height=height)
-    rows = []
+    from .render import _png
+    # One RGBA PNG instead of a hex-string put plus a transparency_set call per
+    # background pixel; uniform 2x2 samples (most pixels) skip the averaging.
+    transparent = tuple(transparent) if transparent is not None else None
+    rgba = bytearray()
     for y in range(height):
-        rows.append('{'+' '.join(_blend([sample(x+dx,y+dy) for dx,dy in
-                        ((.25,.25),(.75,.25),(.25,.75),(.75,.75))]) for x in range(width))+'}')
-    image.put(' '.join(rows))
-    if transparent is not None:
-        background='#'+''.join(f'{channel:02x}' for channel in transparent)
-        for y,row in enumerate(rows):
-            for x,color in enumerate(row[1:-1].split()):
-                if color==background:image.transparency_set(x,y,True)
+        for x in range(width):
+            a,b,c,d = [sample(x+dx,y+dy) for dx,dy in ((.25,.25),(.75,.25),(.25,.75),(.75,.75))]
+            pixel = tuple(a) if a==b==c==d else tuple(round((a[i]+b[i]+c[i]+d[i])/4) for i in range(3))
+            rgba.extend(pixel); rgba.append(0 if pixel==transparent else 255)
+    image = tk.PhotoImage(master=root, data=_png(width,height,bytes(rgba)), format='png')
     image._fluent_factory=lambda ratio:_raster(root,max(1,round(width*ratio)),max(1,round(height*ratio)),lambda x,y:sample(x/ratio,y/ratio),transparent)
     resources=getattr(root._root(),'_dpi_resources',None)
     if resources is not None:resources.image_factories[str(image)]=image._fluent_factory
     return image
+
+
+_ICON_COVERAGE={}  # (name, pixel size) -> alpha bytes; colour is applied per request
+
+
+def _icon_coverage(shapes, extent):
+    """Antialiased stroke coverage of a 20-unit line icon at ``extent`` pixels.
+
+    Same per-pixel formula as before, but each stroke only evaluates the
+    pixels within its reach; every other pixel has zero coverage anyway.
+    """
+    segments,circles,dots=shapes
+    factor=extent/20;margin=.5/factor
+    best=[None]*(extent*extent)
+    def visit(left,top,right,bottom,value):
+        for y in range(max(0,int(top*factor-.5)-1),min(extent,int(bottom*factor-.5)+2)):
+            yy=(y+.5)/factor;row=y*extent
+            for x in range(max(0,int(left*factor-.5)-1),min(extent,int(right*factor-.5)+2)):
+                v=value((x+.5)/factor,yy)
+                if best[row+x] is None or v<best[row+x]:best[row+x]=v
+    for (ax,ay),(bx,by) in segments:
+        vx,vy=bx-ax,by-ay;length=vx*vx+vy*vy or 1;reach=.55+margin
+        def segment(x,y,ax=ax,ay=ay,vx=vx,vy=vy,length=length):
+            t=max(0,min(1,((x-ax)*vx+(y-ay)*vy)/length))
+            return math.hypot(x-ax-t*vx,y-ay-t*vy)-.55
+        visit(min(ax,bx)-reach,min(ay,by)-reach,max(ax,bx)+reach,max(ay,by)+reach,segment)
+    for cx,cy,r in circles:
+        reach=r+.55+margin
+        visit(cx-reach,cy-reach,cx+reach,cy+reach,lambda x,y,cx=cx,cy=cy,r=r:abs(math.hypot(x-cx,y-cy)-r)-.55)
+    for cx,cy in dots:
+        reach=1.25+margin
+        visit(cx-reach,cy-reach,cx+reach,cy+reach,lambda x,y,cx=cx,cy=cy:math.hypot(x-cx,y-cy)-1.25)
+    return bytes(0 if v is None else round(255*max(0,min(1,.5-v*factor))) for v in best)
 
 
 def icon(root, name, size=20, color=None, background=None):
@@ -138,32 +171,18 @@ def icon(root, name, size=20, color=None, background=None):
              'settings':[(7,5,2),(13,10,2),(8,15,2)],'info':[(10,10,8)]}
     dots={'more':[(4,10),(10,10),(16,10)],'info':[(10,6)]}
     if name=='info':paths['info']=[[(10,9),(10,14)]]
-    foreground,bg=map(_rgb,(color,background))
-    def distance(x,y,a,b):
-        ax,ay=a;bx,by=b;vx,vy=bx-ax,by-ay
-        t=max(0,min(1,((x-ax)*vx+(y-ay)*vy)/(vx*vx+vy*vy or 1)))
-        return math.hypot(x-ax-t*vx,y-ay-t*vy)
+    foreground=_rgb(color)
+    shapes=([(a,b) for path in paths.get(name,[]) for a,b in zip(path,path[1:])],circles.get(name,[]),dots.get(name,[]))
     def render(ratio=1):
         # Rasterize geometry at the destination DPI, with coverage alpha instead
         # of baking a particular card/sidebar background into edge pixels.
-        import struct,zlib
-        extent=max(1,round(size*ratio));factor=extent/20
-        segments=[(a,b) for path in paths.get(name,[]) for a,b in zip(path,path[1:])]
-        rows=bytearray()
-        for y in range(extent):
-            rows.append(0)
-            for x in range(extent):
-                xx,yy=(x+.5)/factor,(y+.5)/factor
-                distances=[distance(xx,yy,a,b)-.55 for a,b in segments]
-                distances.extend(abs(math.hypot(xx-cx,yy-cy)-r)-.55 for cx,cy,r in circles.get(name,[]))
-                distances.extend(math.hypot(xx-cx,yy-cy)-1.25 for cx,cy in dots.get(name,[]))
-                coverage=max(0,min(1,.5-min(distances,default=100)*factor))
-                rows.extend((*foreground,round(255*coverage)))
-        def chunk(tag,data):
-            return struct.pack('>I',len(data))+tag+data+struct.pack('>I',zlib.crc32(tag+data)&0xffffffff)
-        png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>2I5B',extent,extent,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
-        image=tk.PhotoImage(master=root,data=png,format='png')
-        return image
+        from .render import _png
+        extent=max(1,round(size*ratio))
+        alpha=_ICON_COVERAGE.get((name,extent))
+        if alpha is None:alpha=_ICON_COVERAGE[(name,extent)]=_icon_coverage(shapes,extent)
+        rgba=bytearray(bytes(foreground)+b'\0')*(extent*extent)
+        rgba[3::4]=alpha
+        return tk.PhotoImage(master=root,data=_png(extent,extent,bytes(rgba)),format='png')
     render.cache_key=('icon',name,size,color)
     cache[key]=render()
     resources=getattr(root,'_dpi_resources',None)
@@ -199,7 +218,9 @@ def apply_theme(root, *, font_family='Microsoft YaHei UI', font_size=10, accent=
     scale=root.winfo_fpixels('1i')/96
     px=lambda n:max(1,round(n*scale))
     root.tk.call('tk','scaling',root.winfo_fpixels('1i')/72)
-    if font_family not in tkfont.families(root):font_family=tkfont.nametofont('TkDefaultFont').actual('family')
+    # Resolving one font is instant; tkfont.families() enumerates every
+    # installed font (up to ~1 s on a cold Windows start).
+    if tkfont.Font(root=root,family=font_family).actual('family')!=font_family:font_family=tkfont.nametofont('TkDefaultFont').actual('family')
     for name in ('TkDefaultFont','TkTextFont','TkMenuFont','TkHeadingFont','TkCaptionFont','TkTooltipFont'):
         tkfont.nametofont(name,root=root).configure(family=font_family,size=font_size)
     normal=(font_family,font_size);bold=(font_family,font_size,'bold');small=(font_family,max(9,font_size-1))

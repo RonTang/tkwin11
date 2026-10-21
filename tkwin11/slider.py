@@ -3,6 +3,8 @@ import math
 import tkinter as tk
 from tkinter import ttk
 from .core import _ProgressSliderBase, PALETTE, _raster, _rgb
+from .dpi import additive_styles
+from .tcl_bridge import on_map
 from .motion import Tween
 
 
@@ -235,7 +237,8 @@ class ScaleController:
             serial=len(pool)+1;thumb=tk.PhotoImage(master=self.root,width=size,height=size)
             self.slot={'serial':serial,'tracks':{},'thumb':thumb,'used':False};pool.append(self.slot)
             style=ttk.Style(widget)
-            style.element_create(f'ScaleMotion{serial}.slider','image',thumb,width=size,height=size,sticky='')
+            with additive_styles(widget):
+                style.element_create(f'ScaleMotion{serial}.slider','image',thumb,width=size,height=size,sticky='')
         self.slot['used']=True;self.serial=self.slot['serial']
         widget._tkwin11_scale=self
         widget._tkwin11_dpi_changed=lambda dpi:self.schedule()
@@ -261,15 +264,17 @@ class ScaleController:
         key=(1<<max(1,width-1).bit_length(),1<<max(1,height-1).bit_length())
         if key==self.track_key:return
         self.track_key=key;name=f'ScaleMotion{self.serial}.{key[0]}x{key[1]}.trough'
-        if key not in self.slot['tracks']:
-            image=tk.PhotoImage(master=self.root,width=key[0],height=key[1]);self.slot['tracks'][key]=image
-            ttk.Style(self.widget).element_create(name,'image',image,border=0,width=1,height=1,sticky='nsew')
-        self.track_image=self.slot['tracks'][key]
-        layouts=self.slot.setdefault('layouts',{})
-        if layouts.get(self.style)!=name:
-            layouts[self.style]=name
-            ttk.Style(self.widget).layout(self.style,[(name,{'sticky':'nsew','children':[(f'ScaleMotion{self.serial}.slider',{'side':'left','sticky':''})]})])
-        self.adapter.values['style']=self.style;self.adapter.apply()
+        # Slot styles belong to this widget alone; apply() relayouts it.
+        with additive_styles(self.widget):
+            if key not in self.slot['tracks']:
+                image=tk.PhotoImage(master=self.root,width=key[0],height=key[1]);self.slot['tracks'][key]=image
+                ttk.Style(self.widget).element_create(name,'image',image,border=0,width=1,height=1,sticky='nsew')
+            self.track_image=self.slot['tracks'][key]
+            layouts=self.slot.setdefault('layouts',{})
+            if layouts.get(self.style)!=name:
+                layouts[self.style]=name
+                ttk.Style(self.widget).layout(self.style,[(name,{'sticky':'nsew','children':[(f'ScaleMotion{self.serial}.slider',{'side':'left','sticky':''})]})])
+            self.adapter.values['style']=self.style;self.adapter.apply()
 
     def schedule(self,event=None):
         if not self.closed and self.job is None:self.job=self.widget.after_idle(self.sync)
@@ -428,7 +433,7 @@ def install_scale_compatibility(root):
     def attach(widget):
         if isinstance(widget,ttk.Scale) and not getattr(widget,'_tkwin11_scale',None) and not root._dpi_resources.manual(widget):ScaleController(widget)
     if not getattr(root,'_scale_compatibility',False):
-        root.bind_all('<Map>',lambda e:attach(e.widget),add='+');root._scale_compatibility=True
+        on_map(root,attach);root._scale_compatibility=True
     def walk(widget):
         attach(widget)
         for child in widget.winfo_children():walk(child)

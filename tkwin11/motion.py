@@ -72,11 +72,17 @@ class Tween:
             update(end)
             if done and generation==self._generation and self.alive():done()
             return
-        began=time.monotonic()
+        clock=[time.monotonic()]*2  # effective start, previous frame
         def tick():
             if generation!=self._generation or not self.alive():return
             self.job=None
-            progress=1 if not enabled(self.owner) else min(1,(time.monotonic()-began)*1000/duration)
+            now=time.monotonic()
+            # A frame counts for at most ~two frames of motion: after the event
+            # loop was blocked (building or first drawing a page) the motion
+            # resumes instead of jumping to its end.
+            if now-clock[1]>.033:clock[0]+=now-clock[1]-.033
+            clock[1]=now
+            progress=1 if not enabled(self.owner) else min(1,(now-clock[0])*1000/duration)
             amount=progress if linear else ease(progress)
             update(end if progress>=1 else start+(end-start)*amount)
             if generation!=self._generation or not self.alive():return

@@ -1,6 +1,7 @@
 """Keyboard behavior for unmodified ttk Notebook and Panedwindow entry points."""
 import tkinter as tk
 from tkinter import ttk
+from .tcl_bridge import on_map
 
 
 def attach_layout(widget):
@@ -52,7 +53,7 @@ def install_layout_compatibility(root):
             if event.widget.instate(['disabled']):return 'break'
         for sequence in ('<ButtonPress>','<ButtonRelease>','<KeyPress>','<B1-Motion>'):
             root.bind_class('FluentTreeInput',sequence,blocked)
-        root.bind_all('<Map>',lambda e:attach_layout(e.widget),add='+')
+        on_map(root,attach_layout)
     def walk(widget):
         attach_layout(widget)
         for child in widget.winfo_children():walk(child)

@@ -2,8 +2,9 @@
 import math
 import tkinter as tk
 from tkinter import ttk
-from .tcl_bridge import install_proxy, delete_callback
+from .tcl_bridge import install_proxy, delete_callback, on_map
 from .core import PALETTE, _raster, _rgb
+from .dpi import additive_styles
 from .motion import Tween, blend
 
 
@@ -47,10 +48,12 @@ def _layout(element):
 
 
 def configure_switch_style(root,style):
-    normal=[frame(root,i) for i in range(13)]
-    disabled=[frame(root,i,disabled=True) for i in (0,12)]
+    # Only the four static faces; frame() renders and caches the in-between
+    # animation frames on first use, as it already does for hover and press.
+    off,on=frame(root,0),frame(root,12)
+    disabled_off,disabled_on=frame(root,0,disabled=True),frame(root,12,disabled=True)
     element='Fluent.Switch.indicator'
-    style.element_create(element,'image',normal[0],('disabled selected',disabled[1]),('disabled',disabled[0]),('selected',normal[12]),width=normal[0].width(),height=normal[0].height(),sticky='')
+    style.element_create(element,'image',off,('disabled selected',disabled_on),('disabled',disabled_off),('selected',on),width=off.width(),height=off.height(),sticky='')
     style.layout('Switch.TCheckbutton',_layout(element))
     style.configure('Switch.TCheckbutton',padding=0,background=PALETTE['bg'])
     style.map('Switch.TCheckbutton',foreground=[('disabled',PALETTE['disabled'])],background=[('active',PALETTE['bg'])])
@@ -80,8 +83,9 @@ class SwitchController:
             image=tk.PhotoImage(master=self.root,width=frame(self.root,0,square=self.square).width(),height=frame(self.root,0,square=self.square).height())
             element=name+'.indicator'
             style=ttk.Style(widget)
-            style.element_create(element,'image',image,('disabled selected',frame(self.root,12,disabled=True,square=self.square)),('disabled',frame(self.root,0,disabled=True,square=self.square)),width=image.width(),height=image.height(),sticky='')
-            style.layout(name,_layout(element))
+            with additive_styles(widget):
+                style.element_create(element,'image',image,('disabled selected',frame(self.root,12,disabled=True,square=self.square)),('disabled',frame(self.root,0,disabled=True,square=self.square)),width=image.width(),height=image.height(),sticky='')
+                style.layout(name,_layout(element))
             self.slot={'style':name,'image':image,'used':False,'square':self.square}
             pool.append(self.slot)
         self.slot['used']=True
@@ -262,7 +266,7 @@ def attach_switch(widget):
 
 def install_switch_compatibility(root):
     if not getattr(root,'_switch_compatibility_installed',False):
-        root.bind_all('<Map>',lambda event:attach_switch(event.widget),add='+')
+        on_map(root,attach_switch)
         def modality(keyboard):
             root._switch_keyboard_focus=keyboard
             focused=root.focus_get()

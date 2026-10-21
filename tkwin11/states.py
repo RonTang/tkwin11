@@ -1,6 +1,7 @@
 """Snapshot descendant state before composite controls propagate disabling."""
 import tkinter as tk
 from tkinter import ttk
+from .tcl_bridge import on_map
 
 
 def descendants_disabled(owner, disabled, saved):
@@ -8,7 +9,7 @@ def descendants_disabled(owner, disabled, saved):
     root=owner._root()
     if not getattr(root,'_dynamic_disabled_installed',False):
         root._dynamic_disabled_installed=True
-        root.bind_all('<Map>',_inherit_disabled,add='+')
+        on_map(root,_inherit_disabled)
     children=[]
     def walk(parent):
         for child in parent.winfo_children():
@@ -38,8 +39,8 @@ def descendants_disabled(owner, disabled, saved):
             else:child.configure(takefocus=original[1],cursor=original[2])
 
 
-def _inherit_disabled(event):
-    parent=getattr(event.widget,'master',None);owners=[]
+def _inherit_disabled(widget):
+    parent=getattr(widget,'master',None);owners=[]
     while parent is not None and not isinstance(parent,tk.Toplevel):
         if hasattr(parent,'_disabled_state_snapshot') and isinstance(parent,ttk.Widget) and parent.instate(['disabled']):owners.append(parent)
         parent=getattr(parent,'master',None)

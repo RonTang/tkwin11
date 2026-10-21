@@ -1,4 +1,5 @@
 """Preserve Tcl script scope and catch semantics across Python command adapters."""
+import sys
 import tkinter as tk
 
 
@@ -35,6 +36,84 @@ def install_proxy(interpreter, path, callback, native, *, scoped=(), routed=None
 def delete_callback(interpreter, dispatch):
     if interpreter.call('info', 'commands', dispatch):
         interpreter.deletecommand(dispatch)
+
+
+_LAZY_THEME_CHANGED = r'''
+namespace eval ::tkwin11 {variable stale; array set stale {}; variable additive 0; variable other 0}
+# sweep=1: the ttk::ThemeChanged walk. sweep=0: a stale window was mapped again.
+proc ::tkwin11::Deliver {root sweep} {
+    variable stale
+    set queue [list $root]
+    while {[llength $queue]} {
+        set next [list]
+        foreach w $queue {
+            if {![winfo exists $w]} {unset -nocomplain stale($w); continue}
+            if {[winfo viewable $w]} {
+                if {$sweep || [info exists stale($w)]} {
+                    unset -nocomplain stale($w)
+                    event generate $w <<ThemeChanged>>
+                    if {![winfo exists $w]} continue
+                }
+            } elseif {$sweep} {
+                set stale($w) 1
+            }
+            lappend next {*}[winfo children $w]
+        }
+        set queue $next
+    }
+}
+# ttk schedules this after any style write. Writes that only declared new
+# names (animation slots, DPI clones) cannot affect an existing widget.
+proc ::ttk::ThemeChanged {} {
+    set skip [expr {$::tkwin11::additive && !$::tkwin11::other}]
+    set ::tkwin11::additive 0
+    set ::tkwin11::other 0
+    if {!$skip} {::tkwin11::Deliver . 1}
+}
+bind all <Map> {+if {[info exists ::tkwin11::stale(%W)]} {::tkwin11::Deliver %W 0}}
+bind all <Destroy> {+unset -nocomplain ::tkwin11::stale(%W)}
+'''
+
+
+def install_lazy_theme_changed(interpreter):
+    """Send ttk's <<ThemeChanged>> only to widgets that are on screen.
+
+    ttk answers every style write (configure, map, layout, element create)
+    by sending <<ThemeChanged>> to every widget in the application, and each
+    ttk widget then rebuilds its layout and redraws -- cached pages that are
+    not displayed included. Hidden windows are marked instead and get the
+    event when they are mapped again, before they are drawn. A round whose
+    writes were all flagged additive (see ``dpi.additive_styles``) is skipped.
+    """
+    if not interpreter.call('info', 'procs', '::tkwin11::Deliver'):
+        interpreter.eval(_LAZY_THEME_CHANGED)
+
+
+def on_map(root, callback):
+    """Call ``callback(widget)`` whenever any widget is mapped.
+
+    All hooks share one Tcl binding that passes only the window path. A
+    ``bind_all('<Map>', ...)`` per hook made tkinter build a full Event (19
+    converted fields) for every hook and every widget mapped, a large part of
+    building a page. Hooks run in registration order; one failing does not
+    stop the others.
+    """
+    root = root._root()
+    hooks = getattr(root, '_tkwin11_map_hooks', None)
+    if hooks is None:
+        hooks = root._tkwin11_map_hooks = []
+        def mapped(path):
+            try:
+                widget = root.nametowidget(path)
+            except KeyError:  # created in Tcl (e.g. a combobox popdown)
+                return
+            for hook in tuple(hooks):
+                try:
+                    hook(widget)
+                except Exception:
+                    root.report_callback_exception(*sys.exc_info())
+        root.tk.call('bind', 'all', '<Map>', '+' + root.register(mapped) + ' %W')
+    hooks.append(callback)
 
 
 def unbind(widget, sequence, funcid):

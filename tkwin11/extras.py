@@ -20,9 +20,9 @@ def configure_extra_styles(root, style):
             root._tkwin11_images.append(image)
             cache[key] = image
         return cache[key]
-    def surface(name, normal, states=(), radius=4):
+    def surface(name, normal, states=(), radius=4, **options):
         style.element_create(name, 'image', normal, *states, border=px(radius)+1,
-                             width=px(radius)*2+2, height=px(radius)*2+2, sticky='nsew')
+                             width=px(radius)*2+2, height=px(radius)*2+2, sticky='nsew', **options)
     for name, plain in [('Toggle.TButton', False), ('Toolbutton', True)]:
         element = 'Web.'+name+'.surface'
         surface(element, face(c['bg'], c['bg'] if plain else c['border']), [
@@ -36,7 +36,8 @@ def configure_extra_styles(root, style):
             ('selected', face(c['selected'], c['blue'] if not plain else c['selected'])),
             ('focus', face(c['bg'], c['blue'])),
             ('active', face(c['hover'], c['hover'] if plain else c['border'])),
-        ])
+        # Same box as TButton: the style padding alone sets the content inset.
+        ], padding=0)
         style.layout(name, [(element, {'sticky':'nsew', 'children':[
             ('Checkbutton.padding', {'sticky':'nsew', 'children':[
                 ('Checkbutton.label', {'sticky':'nsew'})]})]})])

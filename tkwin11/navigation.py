@@ -185,7 +185,10 @@ class NavigationView(ttk.Frame):
             if node.group:
                 self._group_feedback(node,node.button.instate(['active']),selected)
             if selected:
-                node.marker.paint(self.px(18),PALETTE['active'],self._enabled(node))
+                # A repaint (select(notify=False) from the page command) must
+                # not snap a still-growing indicator to full height.
+                if node.key!=self._marked or self.indicator_motion.job is None:
+                    node.marker.paint(self.px(18),PALETTE['active'],self._enabled(node))
                 node.marker.place(x=self.px(8+20*node.depth),rely=.5,anchor='w')
             else:node.marker.place_forget()
         if representative is not None and representative.key!=self._marked:

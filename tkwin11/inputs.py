@@ -3,7 +3,7 @@ import math
 import tkinter as tk
 from tkinter import ttk
 from .core import PALETTE
-from .tcl_bridge import unbind
+from .tcl_bridge import unbind, on_map
 
 class InputShell(ttk.Frame):
     def destroy(self):
@@ -140,7 +140,7 @@ def attach_input(widget):
 
 def install_inputs(root):
     if not getattr(root,'_inputs_installed',False):
-        root.bind_all('<Map>',lambda e:attach_input(e.widget),add='+');root._inputs_installed=True
+        on_map(root,attach_input);root._inputs_installed=True
     def walk(widget):
         attach_input(widget)
         for child in widget.winfo_children():walk(child)

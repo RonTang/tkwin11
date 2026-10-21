@@ -2,6 +2,8 @@
 import tkinter as tk
 from tkinter import ttk
 from .core import PALETTE, _patch
+from .dpi import additive_styles
+from .tcl_bridge import on_map
 from .motion import Tween, blend
 
 STYLES={'TButton','Primary.TButton','Quiet.TButton','Close.TButton','CardIcon.TButton','Dropdown.TButton','Toggle.TButton','Toolbutton','TMenubutton','TOptionMenu','Popup.Quiet.TButton'}
@@ -42,7 +44,10 @@ class ButtonController:
             serial=len(pool)+1;element=f'ButtonMotion{serial}.surface'
             face=_patch(self.root,self.fill,PALETTE['border'],PALETTE['bg'],round(4*self.scale))
             style=ttk.Style(widget);border=round(4*self.scale)+1
-            style.element_create(element,'image',face,border=border,width=border*2,height=border*2,sticky='nsew')
+            # padding=0 like the theme's own button surfaces this replaces; ttk
+            # would default it to the border and grow the button on attach.
+            with additive_styles(widget):
+                style.element_create(element,'image',face,border=border,padding=0,width=border*2,height=border*2,sticky='nsew')
             self.slot={'serial':serial,'element':element,'face':face,'used':False};pool.append(self.slot)
         self.slot['used']=True
         self.serial=self.slot['serial'];self.element=self.slot['element'];self.face=self.slot['face']
@@ -65,9 +70,12 @@ class ButtonController:
         # Pooled slots are reused by every popup row. Re-declaring an identical
         # layout would still broadcast <<ThemeChanged>> to the whole app.
         layouts=self.slot.setdefault('layouts',{})
-        if layouts.get(self.base)!=repr(layout):
-            style.layout(self.style,layout);layouts[self.base]=repr(layout)
-        self.adapter.values['style']=self.style;self.adapter.apply();self.schedule()
+        # The slot is this widget's alone, and apply() below relayouts it.
+        with additive_styles(self.widget):
+            if layouts.get(self.base)!=repr(layout):
+                style.layout(self.style,layout);layouts[self.base]=repr(layout)
+            self.adapter.values['style']=self.style;self.adapter.apply()
+        self.schedule()
 
     def event(self,event):
         if event.type==tk.EventType.ButtonPress:self.root._button_keyboard=False
@@ -188,7 +196,7 @@ def attach_button(widget):
 
 def install_button_compatibility(root):
     if not getattr(root,'_button_compatibility',False):
-        root.bind_all('<Map>',lambda event:attach_button(event.widget),add='+')
+        on_map(root,attach_button)
         root.bind_all('<KeyPress>',lambda event:setattr(root,'_button_keyboard',True),add='+')
         def pointer(event):
             root._button_keyboard=False
