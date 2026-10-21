@@ -76,6 +76,8 @@ class FluentWindowChrome(WindowChrome):
             self.schedule_activation()
 
     def paint_control(self,key,hover=None):
+        button=self.buttons.get(key)
+        if button is None or not button.winfo_exists():return
         if hover is not None:self._control_hover[key]=hover
         hover=self._control_hover.get(key,False)
         disabled=self.buttons[key].instate(['disabled'])
@@ -159,6 +161,13 @@ class FluentWindowChrome(WindowChrome):
         if not hasattr(top,'caption_fills'):top.caption_fills={}
         for key in ('minimize','maximize','close'):
             button=self.buttons[key]
+            if not button.winfo_exists() or not button.winfo_ismapped():
+                fill=top.caption_fills.get(key)
+                if fill is not None:fill.place_forget()
+                if key=='close':
+                    corner.configure(background=WORKSPACE)
+                    if hasattr(right,'caption_fill'):right.caption_fill.place_forget()
+                continue
             signature=self._drawn_controls.get(key)
             bg=signature[1] if signature else WORKSPACE
             if key not in top.caption_fills:

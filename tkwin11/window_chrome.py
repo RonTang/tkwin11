@@ -213,6 +213,7 @@ class WindowChrome:
     def install_snap_hooks(self):
         # Tk HWNDs above the caption must defer this region to the wrapper.
         widget=self.max_button
+        if not widget.winfo_exists():return
         while widget is not None:
             hwnd=widget.winfo_id()
             if hwnd!=self.hwnd and hwnd not in self._snap_hooks:
@@ -238,7 +239,8 @@ class WindowChrome:
             visual=(self._native_hover,self._native_pressed)
             if visual!=self._native_visual:
                 self._native_visual=visual
-                self.max_button.state(['pressed'] if visual[1] else ['!pressed'])
+                if self.max_button.winfo_exists():
+                    self.max_button.state(['pressed'] if visual[1] else ['!pressed'])
                 self.paint_control('maximize',visual[0])
         if self.root.winfo_exists():self._bridge_job=self.root.after(30,self.poll_native)
 
@@ -434,8 +436,12 @@ class WindowChrome:
             x,y=widget.winfo_rootx(),widget.winfo_rooty()
             return x,y,x+widget.winfo_width(),y+widget.winfo_height()
         self._drag_rects=[rect(widget) for widget in self.drag_widgets if widget.winfo_exists()]
-        self._max_rect=rect(self.max_button)
-        self.install_snap_hooks()
+        # Applications may replace the built-in controls with their own.
+        # Clear the old hit target while continuing to refresh drag/exclusions.
+        self._max_rect=None
+        if self.max_button.winfo_exists() and self.max_button.winfo_ismapped():
+            self._max_rect=rect(self.max_button)
+            self.install_snap_hooks()
         self._excluded=[rect(widget) for widget in self.toolbar.winfo_children()
                         if widget not in self.drag_widgets and widget.winfo_ismapped()]
         self._excluded.extend(rect(widget) for widget in self.extra_exclusions if widget.winfo_exists() and widget.winfo_ismapped())
@@ -443,6 +449,7 @@ class WindowChrome:
 
     def sync_capabilities(self):
         """Read standard Tk window policy; consumers need no custom event logic."""
+        if not self.attached:return
         previous=self._resize_axes
         self._resize_axes=tuple(bool(value) for value in self.root.resizable())
         if previous!=self._resize_axes and self._fixed_size is not None and not self.u.IsIconic(self.hwnd):
@@ -457,10 +464,14 @@ class WindowChrome:
             self.set_long(self.hwnd,-16,self.c.c_void_p(updated))
         for key,allowed in [('maximize',all(self._resize_axes) or bool(self.u.IsZoomed(self.hwnd))),
                             ('minimize',bool(updated&0x00020000))]:
-            self.buttons[key].state(['!disabled'] if allowed else ['disabled'])
+            button=self.buttons.get(key)
+            if button is None or not button.winfo_exists():continue
+            button.state(['!disabled'] if allowed else ['disabled'])
             self.paint_control(key)
 
     def paint_control(self,key,hover=False):
+        button=self.buttons.get(key)
+        if button is None or not button.winfo_exists():return
         pinned=key=='pin' and self.pinned
         background=('#FFE8E8' if key=='close' else PALETTE['hover']) if hover else PALETTE['selected'] if pinned else PALETTE['bg']
         color='#DD3333' if key=='close' and hover else PALETTE['blue'] if pinned else PALETTE['muted']
@@ -548,7 +559,7 @@ class WindowChrome:
     def minimize(self):
         if self.attached:
             self.sync_capabilities()
-            if self.buttons['minimize'].instate(['disabled']):return
+            if not self.get_long(self.hwnd,-16)&0x00020000:return
         self.root.iconify()
 
     def close(self):
