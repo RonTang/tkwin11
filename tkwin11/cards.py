@@ -4,6 +4,7 @@ from tkinter import ttk
 from .dpi import additive_styles
 from .tcl_bridge import on_map
 from .motion import Tween
+from . import profiling
 
 
 class CardInteraction:
@@ -99,20 +100,22 @@ class CardInteraction:
         def paint(amount):
             # Quarter steps bound the colours (corner images, frame styles) to a
             # small reusable set instead of one new ttk style per frame.
-            color=fill if amount>=1 else blend(before,fill,round(amount*4)/4)
-            if color==self.fill and not force:return
-            self.fill=color;c._feedback_fill=color;c._recolor()
-            root=c._root();declared=getattr(root,'_card_fill_styles',None)
-            if declared is None:declared=root._card_fill_styles=set()
-            name='CardFill'+color[1:]+'.TFrame'
-            for widget in self.bound:
-                if widget is c or not widget.winfo_exists():continue
-                if isinstance(widget,ttk.Label):widget.configure(background=color)
-                elif isinstance(widget,ttk.Frame):
-                    if name not in declared:
-                        declared.add(name)
-                        with additive_styles(c):ttk.Style(c).configure(name,background=color)
-                    widget.configure(style=name)
+            with profiling.span(c,'cards.feedback.paint','feedback',sample=False):
+                color=fill if amount>=1 else blend(before,fill,round(amount*4)/4)
+                if color==self.fill and not force:return
+                self.fill=color;c._feedback_fill=color;c._recolor()
+                root=c._root();declared=getattr(root,'_card_fill_styles',None)
+                if declared is None:declared=root._card_fill_styles=set()
+                name='CardFill'+color[1:]+'.TFrame'
+                for widget in self.bound:
+                    if widget is c or not widget.winfo_exists():continue
+                    if isinstance(widget,ttk.Label):widget.configure(background=color)
+                    elif isinstance(widget,ttk.Frame):
+                        if name not in declared:
+                            declared.add(name)
+                            with additive_styles(c):ttk.Style(c).configure(name,background=color)
+                        widget.configure(style=name)
+                profiling.operation_mark(c)
         if before==fill or force:self.tween.cancel();paint(1)
         else:self.tween.start(0.,1.,paint,duration=83)
 

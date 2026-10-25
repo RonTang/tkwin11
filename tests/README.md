@@ -1,8 +1,20 @@
-# M0/M1 真实 Tk 场景
+# M0/M1/G0 真实 Tk 场景
 
 `scenarios.py` 是 S1–S7 的标准库场景入口，目标环境为 Windows。场景创建真实 `Tk`/`FluentSwitch`，使用 `after` 和 `mainloop` 驱动；脚本及 `scenario_support.py` 不调用 `update()` 或 `update_idletasks()`。
 
 普通 M0 计数和耗时用于可重复性检查；`TweenProbe` 只包装当前场景内的对象，不修改生产代码。设置 `TKWIN11_PROFILE=1` 后，每轮还会在 root 销毁前保存生产 `profiling.snapshot()`，用于 M1 的 pixels/PNG/PhotoImage、update/sched/gap 和可见性分账。快照本身不直接证明性能收益。
+
+`gallery_scenarios.py` 是 G0 全库审计入口。G1–G6 使用真实 gallery 页面、导航、折叠、非菜单弹窗、滚动、滑块和混合控件，ON/OFF 均记录应用层首次视觉提交与稳定时间；ON 另记录 operation span、DPI、布局、绘制和 Tween 分账。该指标不代表 OS 屏幕 present，也不用于未测量场景的优化声明。
+
+```bash
+# G0 全场景 smoke 与统计
+python tests/gallery_run.py --scenario all --smoke --raw-dir perf/results/gallery-audit/smoke-raw
+python tests/gallery_analysis.py --raw-dir perf/results/gallery-audit/smoke-raw --output perf/results/gallery-audit/smoke/statistics.json --bootstrap 200
+
+# G0 正式 30 对采集与统计
+python tests/gallery_run.py --scenario all --samples 30 --warmup 5 --seed 20250308
+python tests/gallery_analysis.py --bootstrap 10000
+```
 
 ## 自动运行
 

@@ -8,6 +8,7 @@ from tkinter import ttk
 from .core import PALETTE, Modal, Card, ProgressSlider, _patch
 from .render import calendar_icon
 from .tcl_bridge import unbind
+from . import profiling
 
 SEMANTIC={'primary':'#087DFF','success':'#159576','warning':'#B77717','danger':'#D54B58','info':'#197FA8','neutral':'#657080'}
 
@@ -108,6 +109,7 @@ class ResultDialog(Modal):
     def accept(self,value):
         if self._closed or self._dismissing:return
         self.result=value;self.close()
+    @profiling.measure('forms.show_result','popup')
     def show_result(self):self.wait_window();return self.result
 
 class MessageDialog(ResultDialog):
@@ -318,6 +320,7 @@ class CalendarPopup(tk.Toplevel):
             if value:self.day_buttons[value]=button
     def allowed(self,value):
         return not ((self.owner.minimum and value<self.owner.minimum) or (self.owner.maximum and value>self.owner.maximum))
+    @profiling.measure('forms.calendar.ready','popup')
     def ready(self):
         self._ready_job=None
         if self._closed:return

@@ -5,6 +5,7 @@ from tkinter import ttk, font as tkfont
 from .core import Card, ScrollArea, Modal, PALETTE
 from .motion import prepare_popup, reveal_popup
 from .tcl_bridge import unbind
+from . import profiling
 
 class ChoicePopup(tk.Toplevel):
     def __init__(self,owner,items,x,y,*,width=180,selected=0,above=None,align_selected=False):
@@ -125,6 +126,7 @@ class ChoicePopup(tk.Toplevel):
         if index not in self.enabled() or index==self.cursor:return 'break'
         if self.cursor is not None:self.rows[self.cursor].state(['!active'])
         self.cursor=index;row=self.rows[index];row.state(['active'])
+        profiling.operation_mark(self)
         if row.winfo_height()<=1:self.update_idletasks()
         canvas=self.area.canvas;total=max(1,self.area.body.winfo_reqheight())
         first,last=canvas.yview()

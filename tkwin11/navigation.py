@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from .core import PALETTE, ScrollArea, icon, _raster, _rgb
 from .motion import Tween
+from . import profiling
 
 
 class _Pill(tk.Canvas):
@@ -13,19 +14,21 @@ class _Pill(tk.Canvas):
         self.item=self.create_image(0,0,anchor='nw')
 
     def paint(self,height,background,enabled=True):
-        w,h=self.px(3),max(self.px(3),round(height))
-        root=self._root()
-        if not hasattr(root,'_nav_pills'):root._nav_pills={}
-        color=PALETTE['accent'] if enabled else PALETTE['disabled']
-        key=(w,h,background,color)
-        if key not in root._nav_pills:
-            fg,bg=_rgb(color),_rgb(background)
-            def sample(x,y):
-                cy=min(max(y,w/2),h-w/2)
-                return fg if math.hypot(x-w/2,y-cy)<=w/2 else bg
-            root._nav_pills[key]=_raster(root,w,h,sample)
-        self.configure(width=w,height=h,background=background)
-        self.itemconfigure(self.item,image=root._nav_pills[key])
+        with profiling.span(self,'navigation.pill.paint','feedback',sample=False):
+            w,h=self.px(3),max(self.px(3),round(height))
+            root=self._root()
+            if not hasattr(root,'_nav_pills'):root._nav_pills={}
+            color=PALETTE['accent'] if enabled else PALETTE['disabled']
+            key=(w,h,background,color)
+            if key not in root._nav_pills:
+                fg,bg=_rgb(color),_rgb(background)
+                def sample(x,y):
+                    cy=min(max(y,w/2),h-w/2)
+                    return fg if math.hypot(x-w/2,y-cy)<=w/2 else bg
+                root._nav_pills[key]=_raster(root,w,h,sample)
+            self.configure(width=w,height=h,background=background)
+            self.itemconfigure(self.item,image=root._nav_pills[key])
+            profiling.operation_mark(self)
 
 
 class _Node:

@@ -6,6 +6,7 @@ from .core import _ProgressSliderBase, PALETTE, _raster, _rgb
 from .dpi import additive_styles
 from .tcl_bridge import on_map
 from .motion import Tween
+from . import profiling
 
 
 class PointerDrag:
@@ -122,6 +123,7 @@ class ProgressSlider(_ProgressSliderBase):
         self._focused=focused
         self.itemconfigure(self.focus_ring,state='normal' if focused and str(self.cget('state'))!='disabled' else 'hidden')
 
+    @profiling.measure('slider.key_set','input')
     def key_set(self,value):
         self._keyboard=True
         self.focus_visual(True)
@@ -148,6 +150,7 @@ class ProgressSlider(_ProgressSliderBase):
 
     config=configure
 
+    @profiling.measure('slider.draw','draw',sample=False)
     def draw(self,value):
         self._visual=value
         left=self.track_margin();right=max(left,self.winfo_width()-left);y=self.winfo_height()/2
@@ -161,6 +164,7 @@ class ProgressSlider(_ProgressSliderBase):
         self.itemconfigure(self.fill,state='hidden' if abs(start-x)<.01 else 'normal')
         self.coords(self.thumb,x,y)
         self.coords(self.focus_ring,1,1,max(1,self.winfo_width()-2),max(1,self.winfo_height()-2))
+        profiling.operation_mark(self)
 
     def _tkwin11_dpi_changed(self,dpi):self.draw(self._visual)
 
@@ -178,6 +182,7 @@ class ProgressSlider(_ProgressSliderBase):
             self._last_notified=target
             if self.command:self.command(target)
 
+    @profiling.measure('slider.press','input')
     def press(self,event):
         if str(self.cget('state'))=='disabled':return
         self._keyboard=False;self.focus_visual(False)
@@ -187,6 +192,7 @@ class ProgressSlider(_ProgressSliderBase):
         super().press(event)
         self._pointer_drag.start()
 
+    @profiling.measure('slider.motion','input')
     def motion(self,event):
         if self._dragging:super().motion(event)
 
@@ -201,10 +207,12 @@ class ProgressSlider(_ProgressSliderBase):
             if ctypes.windll.user32.GetKeyState(9)&0x8000:self._keyboard=True
         self.focus_visual(self._keyboard)
 
+    @profiling.measure('slider.nudge','input')
     def nudge(self,direction):
         self._keyboard=True;self.focus_visual(True)
         return super().nudge(direction)
 
+    @profiling.measure('slider.release','input')
     def release(self,event):
         self._pointer_drag.cancel()
         self._dragging=False
@@ -315,106 +323,113 @@ class ScaleController:
         self.radius_target=target
 
     def draw(self):
-        disabled=self.widget.instate(['disabled']);vertical=str(self.widget.cget('orient'))=='vertical'
-        dpi=self.resources.window_dpi(self.widget.winfo_toplevel());ratio=dpi/self.resources.base_dpi
-        width=max(round(24*self.scale),round(self.widget.winfo_width()/ratio));height=max(round(24*self.scale),round(self.widget.winfo_height()/ratio))
-        self.select_track(width,height)
-        root=self.root;source_width=width;source_height=height
-        source_track=self.track_key;source_scale=self.scale;radius=self.radius
-        a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));visual=self.visual
-        focused=self.keyboard and self.widget.instate(['focus'])
-        def render(ratio=1):
-            width=max(1,round(source_width*ratio));height=max(1,round(source_height*ratio))
-            track_size=tuple(max(1,round(v*ratio)) for v in source_track);scale=source_scale*ratio
-            image=tk.PhotoImage(master=root,width=track_size[0],height=track_size[1]);image.put(PALETTE['bg'],to=(0,0,*track_size))
-            margin=round(12*scale);half=max(1,round(2*scale))
-            length=height if vertical else width;end=max(margin,length-margin)
-            fraction=max(0,min(1,(visual-a)/(b-a or 1)))
-            pos=round(margin+(end-margin)*fraction)
-            low=margin if a<=b else end
-            def line(start,stop,color):
-                start,stop=sorted((start,stop))
-                if stop<=start:return
-                bounds=(width//2-half,start,width//2+half,stop) if vertical else (start,height//2-half,stop,height//2+half)
-                image.put(color,to=bounds)
-                cache=getattr(root,'_scale_caps',None)
-                if cache is None:cache=root._scale_caps={}
-                key=(half,color)
-                if key not in cache:
-                    cache[key]=_raster(root,2*half,2*half,lambda x,y:_rgb(color if math.hypot(x-half,y-half)<=half else PALETTE['bg']))
-                if vertical:
-                    image.tk.call(image,'copy',cache[key],'-from',0,0,2*half,half,'-to',width//2-half,start-half)
-                    image.tk.call(image,'copy',cache[key],'-from',0,half,2*half,2*half,'-to',width//2-half,stop)
-                else:
-                    image.tk.call(image,'copy',cache[key],'-from',0,0,half,2*half,'-to',start-half,height//2-half)
-                    image.tk.call(image,'copy',cache[key],'-from',half,0,2*half,2*half,'-to',stop,height//2-half)
-            line(margin,end,'#D4D4D4' if disabled else '#8A8A8A')
-            line(low,pos,'#B8B8B8' if disabled else PALETTE['accent'])
-            if focused and not disabled:
-                for bounds in ((0,0,width,1),(0,height-1,width,height),(0,0,1,height),(width-1,0,width,height)):
-                    image.put(PALETTE['fg'],to=bounds)
-            thumb=thumb_image(root,round(24*scale),round(radius*2)/2,disabled)
-            x=width//2 if vertical else pos;y=pos if vertical else height//2
-            image.tk.call(image,'copy',thumb,'-to',max(0,x-thumb.width()//2),max(0,y-thumb.height()//2))
-            return image
-        render.cache_key=('scale-track',source_width,source_height,source_track,source_scale,radius,a,b,visual,focused,disabled,vertical)
-        image=render()
-        self.resources.image_factories[str(image)]=render
-        self.widget.tk.call(self.track_image,'copy',image)
+        with profiling.span(self.widget,'scale_controller.draw','draw',sample=False):
+            disabled=self.widget.instate(['disabled']);vertical=str(self.widget.cget('orient'))=='vertical'
+            dpi=self.resources.window_dpi(self.widget.winfo_toplevel());ratio=dpi/self.resources.base_dpi
+            width=max(round(24*self.scale),round(self.widget.winfo_width()/ratio));height=max(round(24*self.scale),round(self.widget.winfo_height()/ratio))
+            self.select_track(width,height)
+            root=self.root;source_width=width;source_height=height
+            source_track=self.track_key;source_scale=self.scale;radius=self.radius
+            a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));visual=self.visual
+            focused=self.keyboard and self.widget.instate(['focus'])
+            def render(ratio=1):
+                width=max(1,round(source_width*ratio));height=max(1,round(source_height*ratio))
+                track_size=tuple(max(1,round(v*ratio)) for v in source_track);scale=source_scale*ratio
+                image=tk.PhotoImage(master=root,width=track_size[0],height=track_size[1]);image.put(PALETTE['bg'],to=(0,0,*track_size))
+                margin=round(12*scale);half=max(1,round(2*scale))
+                length=height if vertical else width;end=max(margin,length-margin)
+                fraction=max(0,min(1,(visual-a)/(b-a or 1)))
+                pos=round(margin+(end-margin)*fraction)
+                low=margin if a<=b else end
+                def line(start,stop,color):
+                    start,stop=sorted((start,stop))
+                    if stop<=start:return
+                    bounds=(width//2-half,start,width//2+half,stop) if vertical else (start,height//2-half,stop,height//2+half)
+                    image.put(color,to=bounds)
+                    cache=getattr(root,'_scale_caps',None)
+                    if cache is None:cache=root._scale_caps={}
+                    key=(half,color)
+                    if key not in cache:
+                        cache[key]=_raster(root,2*half,2*half,lambda x,y:_rgb(color if math.hypot(x-half,y-half)<=half else PALETTE['bg']))
+                    if vertical:
+                        image.tk.call(image,'copy',cache[key],'-from',0,0,2*half,half,'-to',width//2-half,start-half)
+                        image.tk.call(image,'copy',cache[key],'-from',0,half,2*half,2*half,'-to',width//2-half,stop)
+                    else:
+                        image.tk.call(image,'copy',cache[key],'-from',0,0,half,2*half,'-to',start-half,height//2-half)
+                        image.tk.call(image,'copy',cache[key],'-from',half,0,2*half,2*half,'-to',stop,height//2-half)
+                line(margin,end,'#D4D4D4' if disabled else '#8A8A8A')
+                line(low,pos,'#B8B8B8' if disabled else PALETTE['accent'])
+                if focused and not disabled:
+                    for bounds in ((0,0,width,1),(0,height-1,width,height),(0,0,1,height),(width-1,0,width,height)):
+                        image.put(PALETTE['fg'],to=bounds)
+                thumb=thumb_image(root,round(24*scale),round(radius*2)/2,disabled)
+                x=width//2 if vertical else pos;y=pos if vertical else height//2
+                image.tk.call(image,'copy',thumb,'-to',max(0,x-thumb.width()//2),max(0,y-thumb.height()//2))
+                return image
+            render.cache_key=('scale-track',source_width,source_height,source_track,source_scale,radius,a,b,visual,focused,disabled,vertical)
+            image=render()
+            self.resources.image_factories[str(image)]=render
+            self.widget.tk.call(self.track_image,'copy',image)
+            profiling.operation_mark(self.widget)
 
     def at(self,event):
-        vertical=str(self.widget.cget('orient'))=='vertical';length=self.widget.winfo_height() if vertical else self.widget.winfo_width()
-        dpi=self.resources.window_dpi(self.widget.winfo_toplevel());margin=12*dpi/96
-        fraction=max(0,min(1,((event.y if vertical else event.x)-self.drag_offset-margin)/max(1,length-2*margin)))
-        a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));value=a+(b-a)*fraction
-        if not math.isclose(value,self.widget.get(),rel_tol=0,abs_tol=1e-12):self.widget.set(value)
+        with profiling.span(self.widget,'scale_controller.at','input'):
+            vertical=str(self.widget.cget('orient'))=='vertical';length=self.widget.winfo_height() if vertical else self.widget.winfo_width()
+            dpi=self.resources.window_dpi(self.widget.winfo_toplevel());margin=12*dpi/96
+            fraction=max(0,min(1,((event.y if vertical else event.x)-self.drag_offset-margin)/max(1,length-2*margin)))
+            a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));value=a+(b-a)*fraction
+            if not math.isclose(value,self.widget.get(),rel_tol=0,abs_tol=1e-12):self.widget.set(value)
 
     def press(self,event):
-        if self.widget.instate(['disabled']):return 'break'
-        self.keyboard=False;self.dragging=True
-        if self.root.grab_current() is not self.widget:
-            self.previous_grab=self.root.grab_current()
-            self.previous_grab_global=self.previous_grab is not None and self.previous_grab.grab_status()=='global'
-        self.position_animator.cancel()
-        vertical=str(self.widget.cget('orient'))=='vertical';length=self.widget.winfo_height() if vertical else self.widget.winfo_width()
-        margin=12*self.resources.window_dpi(self.widget.winfo_toplevel())/96
-        a=float(self.widget.cget('from'));b=float(self.widget.cget('to'))
-        center=margin+max(0,length-2*margin)*max(0,min(1,(self.visual-a)/(b-a or 1)))
-        point=event.y if vertical else event.x
-        self.drag_offset=point-center if abs(point-center)<=margin else 0.
-        self.widget.focus_set();self.widget.grab_set_global();self.at(event);self.pointer_drag.start();self.schedule();return 'break'
+        with profiling.span(self.widget,'scale_controller.press','input'):
+            if self.widget.instate(['disabled']):return 'break'
+            self.keyboard=False;self.dragging=True
+            if self.root.grab_current() is not self.widget:
+                self.previous_grab=self.root.grab_current()
+                self.previous_grab_global=self.previous_grab is not None and self.previous_grab.grab_status()=='global'
+            self.position_animator.cancel()
+            vertical=str(self.widget.cget('orient'))=='vertical';length=self.widget.winfo_height() if vertical else self.widget.winfo_width()
+            margin=12*self.resources.window_dpi(self.widget.winfo_toplevel())/96
+            a=float(self.widget.cget('from'));b=float(self.widget.cget('to'))
+            center=margin+max(0,length-2*margin)*max(0,min(1,(self.visual-a)/(b-a or 1)))
+            point=event.y if vertical else event.x
+            self.drag_offset=point-center if abs(point-center)<=margin else 0.
+            self.widget.focus_set();self.widget.grab_set_global();self.at(event);self.pointer_drag.start();self.schedule();return 'break'
 
     def motion(self,event):
-        if self.dragging and not self.widget.instate(['disabled']):self.at(event)
-        return 'break'
+        with profiling.span(self.widget,'scale_controller.motion','input'):
+            if self.dragging and not self.widget.instate(['disabled']):self.at(event)
+            return 'break'
 
     def release(self,event):
-        self.pointer_drag.cancel()
-        was_dragging=self.dragging;self.dragging=False
-        current=self.root.grab_current()
-        if current is self.widget:
-            self.widget.grab_release()
-        if was_dragging and current in (None,self.widget) and self.previous_grab is not None and self.previous_grab is not self.widget and self.previous_grab.winfo_exists():
-            self.previous_grab.grab_set_global() if self.previous_grab_global else self.previous_grab.grab_set()
-        self.previous_grab=None
-        self.drag_offset=0.
-        if was_dragging:self.schedule()
-        return 'break'
+        with profiling.span(self.widget,'scale_controller.release','input'):
+            self.pointer_drag.cancel()
+            was_dragging=self.dragging;self.dragging=False
+            current=self.root.grab_current()
+            if current is self.widget:
+                self.widget.grab_release()
+            if was_dragging and current in (None,self.widget) and self.previous_grab is not None and self.previous_grab is not self.widget and self.previous_grab.winfo_exists():
+                self.previous_grab.grab_set_global() if self.previous_grab_global else self.previous_grab.grab_set()
+            self.previous_grab=None
+            self.drag_offset=0.
+            if was_dragging:self.schedule()
+            return 'break'
 
     def cancel_drag(self,event=None):
         if self.dragging:return self.release(None)
 
     def key(self,key):
-        if self.widget.instate(['disabled']):return 'break'
-        self.keyboard=True;a=float(self.widget.cget('from'));b=float(self.widget.cget('to'))
-        step=min(1,abs(b-a)/100) if abs(b-a)<1 else 1
-        direction=1 if key in ('Right','Up','Prior') else -1
-        if str(self.widget.cget('orient'))=='vertical':direction=-1 if key in ('Up','Left','Prior') else 1
-        direction*=1 if b>=a else -1
-        target=a if key=='Home' else b if key=='End' else self.widget.get()+direction*step*(10 if key in ('Prior','Next') else 1)
-        target=max(min(a,b),min(max(a,b),target))
-        if target!=self.widget.get():self.widget.set(target)
-        self.schedule();return 'break'
+        with profiling.span(self.widget,'scale_controller.key','input'):
+            if self.widget.instate(['disabled']):return 'break'
+            self.keyboard=True;a=float(self.widget.cget('from'));b=float(self.widget.cget('to'))
+            step=min(1,abs(b-a)/100) if abs(b-a)<1 else 1
+            direction=1 if key in ('Right','Up','Prior') else -1
+            if str(self.widget.cget('orient'))=='vertical':direction=-1 if key in ('Up','Left','Prior') else 1
+            direction*=1 if b>=a else -1
+            target=a if key=='Home' else b if key=='End' else self.widget.get()+direction*step*(10 if key in ('Prior','Next') else 1)
+            target=max(min(a,b),min(max(a,b),target))
+            if target!=self.widget.get():self.widget.set(target)
+            self.schedule();return 'break'
 
     def destroy(self,event):
         if event.widget is not self.widget:return

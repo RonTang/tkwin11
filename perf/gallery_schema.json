@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TkWin11 gallery performance operation",
+  "type": "object",
+  "required": ["name", "kind", "details", "first_visual_ms", "settled_ms", "status"],
+  "properties": {
+    "name": {"type": "string"},
+    "kind": {"type": "string"},
+    "details": {"type": "object"},
+    "first_visual_ms": {"type": ["number", "null"], "minimum": 0},
+    "settled_ms": {"type": ["number", "null"], "minimum": 0},
+    "status": {"enum": ["active", "done", "error"]}
+  },
+  "notes": {
+    "first_visual_ms": "Application-layer first renderer/reveal/effective yview/slider draw; not OS screen present.",
+    "settled_ms": "Input to declared animation/layout terminal condition.",
+    "profile_operations": "ON-only records additionally contain coarse spans, aggregated frame span_totals, tween update totals, sched_delay_ms and gap_ms."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "milestone": "G0",
+  "status": "frozen_before_formal_measurement",
+  "units": "ms",
+  "percentile": "linear interpolation at (n-1)*q over sorted values",
+  "rules": [
+    {"scenarios": ["G1"], "operation": "page_open", "kind": "cold", "first_visual_ms": 100.0, "settled_ms": 217.0},
+    {"scenarios": ["G1"], "operation": "page_open", "kind": "hot", "first_visual_ms": 50.0, "settled_ms": 217.0},
+    {"scenarios": ["G2"], "operation": "*", "kind": "*", "first_visual_ms": 50.0, "settled_ms": 300.0},
+    {"scenarios": ["G3"], "operation": "*", "kind": "*", "first_visual_ms": 50.0, "settled_ms": 133.0},
+    {"scenarios": ["G4"], "operation": "*", "kind": "*", "first_visual_ms": 50.0, "settled_ms": 217.0},
+    {"scenarios": ["G5"], "operation": "*", "kind": "*", "first_visual_ms": 50.0, "settled_ms": 217.0},
+    {"scenarios": ["G6"], "operation": "*", "kind": "*", "first_visual_ms": 50.0, "settled_ms": 300.0}
+  ],
+  "scheduler": {"sched_delay_p95_ms": 33.0, "gap_p95_ms": 33.0, "long_gap_ms": [33.0, 50.0]},
+  "formal_collection": {
+    "measured_pairs_per_scenario_minimum": 30,
+    "warmup_per_mode_minimum_for_hot_paths": 5,
+    "bootstrap_resamples": 10000,
+    "seed": 20250308,
+    "smoke_allowed": false
+  },
+  "shared_candidate_requirements": [
+    "formal real-scenario perceptual metric exceeds its frozen budget and the absolute delta exceeds paired ON/OFF noise",
+    "attribution identifies a shared component as a major cost or independent after timing proves scheduler overhead",
+    "affects at least two control/operation types or is shared infrastructure",
+    "select only the largest removable p95 attributable cost; do not optimize microsecond or CI-crossing candidates"
+  ]
+}

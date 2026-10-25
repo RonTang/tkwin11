@@ -120,33 +120,37 @@ class Tween:
 
 
 def prepare_popup(window):
-    window._fade=Tween(window)
-    try:window.attributes('-alpha',0.0 if enabled(window) else 1.0)
-    except tk.TclError:pass
+    with profiling.span(window,'motion.prepare_popup','popup'):
+        window._fade=Tween(window)
+        try:window.attributes('-alpha',0.0 if enabled(window) else 1.0)
+        except tk.TclError:pass
 
 
 def reveal_popup(window):
-    def opacity(value):
-        try:window.attributes('-alpha',value)
-        except tk.TclError:pass
-    window._dismissing=False
-    window._fade.start(float(window.attributes('-alpha')),1.,opacity,duration=83,linear=True)
+    with profiling.span(window,'motion.reveal_popup','popup'):
+        def opacity(value):
+            try:window.attributes('-alpha',value)
+            except tk.TclError:pass
+        window._dismissing=False
+        profiling.operation_mark(window)
+        window._fade.start(float(window.attributes('-alpha')),1.,opacity,duration=83,linear=True)
 
 
 def dismiss_popup(window):
     """Cancel from the current frame; modal content and scrim fade together."""
-    if window._closed or getattr(window,'_dismissing',False):return 'break'
-    window._dismissing=True
-    for attribute in ('_show_job','_ready_job'):
-        job=getattr(window,attribute,None)
-        if job is not None:window.after_cancel(job);setattr(window,attribute,None)
-    mask=getattr(window,'mask',None)
-    mask_tween=getattr(window,'_mask_fade',None)
-    if mask_tween is not None:mask_tween.cancel()
-    alpha=float(window.attributes('-alpha'))
-    mask_alpha=float(mask.attributes('-alpha')) if mask is not None and mask.winfo_exists() else 0
-    def paint(amount):
-        window.attributes('-alpha',alpha*(1-amount))
-        if mask is not None and mask.winfo_exists():mask.attributes('-alpha',mask_alpha*(1-amount))
-    window._fade.start(0.,1.,paint,duration=83,done=window.close,linear=True)
-    return 'break'
+    with profiling.span(window,'motion.dismiss_popup','popup'):
+        if window._closed or getattr(window,'_dismissing',False):return 'break'
+        window._dismissing=True
+        for attribute in ('_show_job','_ready_job'):
+            job=getattr(window,attribute,None)
+            if job is not None:window.after_cancel(job);setattr(window,attribute,None)
+        mask=getattr(window,'mask',None)
+        mask_tween=getattr(window,'_mask_fade',None)
+        if mask_tween is not None:mask_tween.cancel()
+        alpha=float(window.attributes('-alpha'))
+        mask_alpha=float(mask.attributes('-alpha')) if mask is not None and mask.winfo_exists() else 0
+        def paint(amount):
+            window.attributes('-alpha',alpha*(1-amount))
+            if mask is not None and mask.winfo_exists():mask.attributes('-alpha',mask_alpha*(1-amount))
+        window._fade.start(0.,1.,paint,duration=83,done=window.close,linear=True)
+        return 'break'

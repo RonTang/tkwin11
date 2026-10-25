@@ -1,5 +1,6 @@
 """Shared interruptible clipped-height expansion for both public containers."""
 from .motion import Tween
+from . import profiling
 
 
 class Expansion:
@@ -60,18 +61,19 @@ class Expansion:
         return 'break'
     def toggle(self):return self.set_open(not self.owner.opened)
     def sync(self):
-        o=self.owner;o.arrow()
-        if not o.opened:
-            focus=o.focus_get()
-            if focus is not None and str(focus).startswith(str(o.body)+'.'):self.button.focus_set()
-        self.show();self.measuring=True
-        try:o.update_idletasks()
-        finally:self.measuring=False
-        self.target=self.measure() if o.opened else 0
-        def done():
-            if not o.opened:self.hide()
-            elif abs(self.height-self.measure())>1:self.sync()
-        self.animator.start(self.height,self.target,self.paint,duration=250,done=done)
+        with profiling.span(self.owner,'expansion.sync','layout'):
+            o=self.owner;o.arrow()
+            if not o.opened:
+                focus=o.focus_get()
+                if focus is not None and str(focus).startswith(str(o.body)+'.'):self.button.focus_set()
+            self.show();self.measuring=True
+            try:o.update_idletasks()
+            finally:self.measuring=False
+            self.target=self.measure() if o.opened else 0
+            def done():
+                if not o.opened:self.hide()
+                elif abs(self.height-self.measure())>1:self.sync()
+            self.animator.start(self.height,self.target,self.paint,duration=250,done=done)
     def resized(self,event):
         if self.owner.opened and abs(self.target-self.measure())>1 and self.job is None:
             self.job=self.owner.after_idle(self.retarget)

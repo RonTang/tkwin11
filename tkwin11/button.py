@@ -5,6 +5,7 @@ from .core import PALETTE, _patch
 from .dpi import additive_styles
 from .tcl_bridge import on_map
 from .motion import Tween, blend
+from . import profiling
 
 STYLES={'TButton','Primary.TButton','Quiet.TButton','Close.TButton','CardIcon.TButton','Dropdown.TButton','Toggle.TButton','Toolbutton','TMenubutton','TOptionMenu','Popup.Quiet.TButton'}
 SEMANTIC={'Primary':PALETTE['accent'],'Success':'#159576','Warning':'#B77717','Danger':'#D54B58','Info':'#197FA8','Neutral':'#657080'}
@@ -168,8 +169,10 @@ class ButtonController:
         def paint(amount):
             # Eight steps per transition keep the 83 ms fade smooth while every
             # frame becomes a cache hit after first use (no PhotoImage churn).
-            self.fill=target if amount>=1 else blend(start,target,round(amount*8)/8)
-            self.widget.tk.call(self.face,'copy',_face(self.root,self.fill,edge,background,round(4*self.scale)))
+            with profiling.span(self.widget,'button.feedback.paint','feedback',sample=False):
+                self.fill=target if amount>=1 else blend(start,target,round(amount*8)/8)
+                self.widget.tk.call(self.face,'copy',_face(self.root,self.fill,edge,background,round(4*self.scale)))
+                profiling.operation_mark(self.widget)
         if disabled or start.lower()==target.lower():self.animator.cancel();paint(1)
         else:self.animator.start(0.,1.,paint,duration=83,linear=True)
 

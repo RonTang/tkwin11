@@ -8,6 +8,7 @@ from .forms import SEMANTIC, Badge
 from .render import SmoothImage
 from .motion import Tween
 from .tcl_bridge import unbind
+from . import profiling
 
 class ToastNotification(tk.Toplevel):
     def __init__(self,master,message,*,title='',kind='info',duration=3000,position='bottom-right'):
@@ -30,6 +31,7 @@ class ToastNotification(tk.Toplevel):
         self._configure_bind=self.host.bind('<Configure>',self._host_configure,add='+')
         self._unmap_bind=self.host.bind('<Unmap>',lambda e:self.hide() if e.widget is self.host else None,add='+')
         self._destroy_bind=self.host.bind('<Destroy>',lambda e:self.hide() if e.widget is self.host else None,add='+')
+    @profiling.measure('feedback.show_toast','popup')
     def show_toast(self):
         if self._closed:return self
         self._fade.cancel();self._dismissing=False
@@ -46,6 +48,7 @@ class ToastNotification(tk.Toplevel):
         if self._ready_job is not None:self.after_cancel(self._ready_job)
         self._ready_job=self.after(20,self._finish_show)
         return self
+    @profiling.measure('feedback.finish_show','popup')
     def _finish_show(self):
         self._ready_job=None
         if self._closed:return

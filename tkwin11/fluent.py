@@ -6,6 +6,7 @@ from .core import PALETTE, _patch, _raster, _rgb, ScrollArea, icon
 from .motion import Tween, blend, prepare_popup, reveal_popup
 from .window_chrome import WindowChrome
 from .tcl_bridge import unbind
+from . import profiling
 
 WORKSPACE = '#F7FAFC'
 
@@ -197,6 +198,7 @@ class FluentPage(ScrollArea):
         self.canvas.configure(background=WORKSPACE)
         self.body.configure(style='Workspace.TFrame', padding=round(40*self.winfo_fpixels('1i')/96))
 
+    @profiling.measure('fluent.page.prepare','layout')
     def prepare(self,width,height):
         """Resolve layout outside the viewport before presenting a page."""
         self._page_tween.cancel()
@@ -228,11 +230,13 @@ class FluentPage(ScrollArea):
                     widget.refresh()
         self.update_idletasks()
 
+    @profiling.measure('fluent.page.present','layout')
     def present(self):
         resources=getattr(self._root(),'_dpi_resources',None)
         scale=resources.window_dpi(self.winfo_toplevel())/96 if resources else 1
         self.place(x=0,y=0,width=0,height=0,relwidth=1,relheight=1)
         self.lift()
+        profiling.operation_mark(self)
         previous=getattr(self.master,'_fluent_presented_page',None)
         if previous is not None and previous is not self:previous._page_tween.cancel()
         self.master._fluent_presented_page=self

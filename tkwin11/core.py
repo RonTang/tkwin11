@@ -10,6 +10,7 @@ import sys
 import tkinter as tk
 from tkinter import font as tkfont, ttk
 from .tcl_bridge import unbind
+from . import profiling
 
 PALETTE = dict(bg='#FDFEFE', sidebar='#EEF5F9', fg='#1A1A1A', muted='#606060',
                border='#E8EBED', hover='#F6F6F6', active='#E4EBF0',
@@ -36,6 +37,7 @@ def _blend(colors):
     return '#' + ''.join(f'{round(sum(c[i] for c in colors)/len(colors)):02x}' for i in range(3))
 
 
+@profiling.measure('core.patch','raster',sample=False)
 def _patch(root, fill, border, surrounding, radius, height=80, width=192):
     # Broad centers avoid thousands of tiny image tiles during a resize.
     width, height = max(width, radius*2+4), max(height, radius*2+4)
@@ -67,6 +69,7 @@ def _patch(root, fill, border, surrounding, radius, height=80, width=192):
     return image
 
 
+@profiling.measure('core.raster','raster',sample=False)
 def _raster(root, width, height, sample, transparent=None):
     from contextlib import nullcontext
     from .profiling import current_frame

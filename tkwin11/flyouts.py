@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from .motion import prepare_popup,reveal_popup
 from .tcl_bridge import unbind
+from . import profiling
 
 
 class FormFlyout(tk.Toplevel):
@@ -27,6 +28,7 @@ class FormFlyout(tk.Toplevel):
         self._host_binding=self.host.bind('<Configure>',self.host_configured,add='+')
         self._owner_binding=owner.bind('<Destroy>',self.owner_destroyed,add='+')
 
+    @profiling.measure('flyout.show','popup')
     def show(self):
         if self._closed:return
         if self.winfo_ismapped():

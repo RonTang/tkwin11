@@ -10,6 +10,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk, font
 from .tcl_bridge import install_proxy, delete_callback, install_lazy_theme_changed, on_map
+from . import profiling
 
 
 def _freeze(value):
@@ -359,25 +360,27 @@ class Resources:
         return self.base_dpi
 
     def attach(self,widget):
-        path=str(widget)
-        if path in self.widgets or self.manual(widget):return
-        if not isinstance(widget,(ttk.Widget,tk.Canvas)) and not any(k in tk.Misc.keys(widget) for k in ('font','image')):return
-        adapter=WidgetResources(self,widget)
-        self.widgets[path]=adapter
-        adapter.apply()
+        with profiling.span(self.root,'dpi.resources.attach','dpi',sample=False):
+            path=str(widget)
+            if path in self.widgets or self.manual(widget):return
+            if not isinstance(widget,(ttk.Widget,tk.Canvas)) and not any(k in tk.Misc.keys(widget) for k in ('font','image')):return
+            adapter=WidgetResources(self,widget)
+            self.widgets[path]=adapter
+            adapter.apply()
 
     def update(self,window,dpi):
-        self.windows[str(window)]=dpi
-        def walk(widget):
-            for child in widget.winfo_children():
-                if isinstance(child,tk.Toplevel):continue
-                self.attach(child);walk(child)
-        walk(window)
-        for adapter in list(self.widgets.values()):
-            if adapter.window is window:
-                adapter.apply()
-                callback=getattr(adapter.widget,'_tkwin11_dpi_changed',None)
-                if callback is not None:callback(dpi)
+        with profiling.span(self.root,'dpi.resources.update','dpi'):
+            self.windows[str(window)]=dpi
+            def walk(widget):
+                for child in widget.winfo_children():
+                    if isinstance(child,tk.Toplevel):continue
+                    self.attach(child);walk(child)
+            walk(window)
+            for adapter in list(self.widgets.values()):
+                if adapter.window is window:
+                    adapter.apply()
+                    callback=getattr(adapter.widget,'_tkwin11_dpi_changed',None)
+                    if callback is not None:callback(dpi)
 
 
 class WidgetResources:
@@ -440,19 +443,20 @@ class WidgetResources:
             self.resources.image_users.setdefault(name,set()).add(self)
 
     def apply(self):
-        args=[]
-        for key,value in self.values.items():args.extend(('-'+key,self.transformed(key,value)))
-        if args:self.tk.call(self.native,'configure',*args)
-        for item,values in self.canvas_items.items():
-            if not self.tk.call(self.native,'type',item):continue
+        with profiling.span(self.resources.root,'dpi.widget.apply','dpi',sample=False):
             args=[]
-            for key,value in values.items():args.extend(('-'+key,self.transformed(key,value)))
-            self.tk.call(self.native,'itemconfigure',item,*args)
-        for prefix,values in list(self.parts.items()):
-            args=[]
-            for key,value in values.items():args.extend(('-'+key,self.transformed(key,value)))
-            try:self.tk.call(self.native,*prefix,*args)
-            except tk.TclError:self.parts.pop(prefix,None)
+            for key,value in self.values.items():args.extend(('-'+key,self.transformed(key,value)))
+            if args:self.tk.call(self.native,'configure',*args)
+            for item,values in self.canvas_items.items():
+                if not self.tk.call(self.native,'type',item):continue
+                args=[]
+                for key,value in values.items():args.extend(('-'+key,self.transformed(key,value)))
+                self.tk.call(self.native,'itemconfigure',item,*args)
+            for prefix,values in list(self.parts.items()):
+                args=[]
+                for key,value in values.items():args.extend(('-'+key,self.transformed(key,value)))
+                try:self.tk.call(self.native,*prefix,*args)
+                except tk.TclError:self.parts.pop(prefix,None)
 
     def command(self,*args):
         if not self.tk.call('info','commands',self.native):return ''

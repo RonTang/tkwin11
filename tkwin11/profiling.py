@@ -33,6 +33,10 @@ def state(root):
             'frames': [],
             'active': set(),
             'current_frame': None,
+            'operations': [],
+            'operation_by_id': {},
+            'active_operations': [],
+            'operation_serial': 0,
         }
     return result
 
@@ -65,11 +69,94 @@ def snapshot(root, reset=False):
         'counters': {name: value for name, value in profile['counters'].items()},
         'visibility': {name: dict(value) for name, value in profile['visibility'].items()},
         'frames': [dict(value) for value in profile['frames']],
+        'operations': [{
+            **operation,
+            'details': dict(operation['details']),
+            'spans': [dict(span) for span in operation['spans']],
+            'span_totals': {name: dict(total) for name, total in operation['span_totals'].items()},
+            'sched_delay_ms': list(operation['sched_delay_ms']),
+            'gap_ms': list(operation['gap_ms']),
+        } for operation in profile['operations']],
     }
     result['summary'] = summary(result['samples'])
     if reset:
         root._root()._tkwin11_profile = None
     return result
+
+
+def operation_start(root, name, kind, details=None):
+    profile = state(root)
+    if profile is None:
+        return None
+    profile['operation_serial'] += 1
+    operation = {
+        'id': profile['operation_serial'], 'name': name, 'kind': kind,
+        'details': details or {}, 'input_timestamp': time.perf_counter(),
+        'first_visual_ms': None, 'settled_ms': None, 'status': 'active',
+        'spans': [], 'span_totals': {},
+        'tween_update_ms_total': 0., 'tween_update_count': 0,
+        'sched_delay_ms': [], 'gap_ms': [],
+    }
+    profile['operations'].append(operation)
+    profile['operation_by_id'][operation['id']] = operation
+    profile['active_operations'].append(operation)
+    return operation['id']
+
+
+def operation_mark(root, operation_id=None, marker='first_visual'):
+    profile = state(root)
+    if profile is None:
+        return
+    operations = profile['active_operations']
+    operation = (profile['operation_by_id'].get(operation_id) if operation_id is not None
+                 else operations[-1] if operations else None)
+    key = marker+'_ms'
+    if operation is not None and key in ('first_visual_ms', 'settled_ms') and operation[key] is None:
+        operation[key] = (time.perf_counter()-operation['input_timestamp'])*1000
+
+
+def operation_finish(root, operation_id, error=None):
+    profile = state(root)
+    if profile is None:
+        return
+    operation = profile['operation_by_id'].get(operation_id)
+    if operation is None:
+        return
+    operation_mark(root, operation_id, 'settled')
+    operation['status'] = 'error' if error else 'done'
+    if operation in profile['active_operations']:
+        profile['active_operations'].remove(operation)
+
+
+@contextmanager
+def span(root, name, kind='', sample=True):
+    profile = state(root)
+    operations = profile['active_operations'] if profile is not None else ()
+    if not operations:
+        yield
+        return
+    operation = operations[-1]
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = (time.perf_counter()-started)*1000
+        if sample:
+            operation['spans'].append({'name': name, 'kind': kind, 'elapsed_ms': elapsed})
+        else:
+            total = operation['span_totals'].setdefault(name, {'count': 0, 'total_ms': 0., 'max_ms': 0.})
+            total['count'] += 1
+            total['total_ms'] += elapsed
+            total['max_ms'] = max(total['max_ms'], elapsed)
+
+
+def measure(name, kind='', sample=True):
+    def decorate(function):
+        def wrapper(*args, **kwargs):
+            with span(args[0], name, kind, sample):
+                return function(*args, **kwargs)
+        return wrapper
+    return decorate
 
 
 class FrameCollector:
@@ -168,6 +255,8 @@ def tween_start(owner, tween):
         return None
     category = visibility(owner)
     tween._profile_visibility = category
+    operations = profile['active_operations']
+    tween._profile_operation_id = operations[-1]['id'] if operations else None
     profile['active'].add(tween)
     active = len(profile['active'])
     profile['counters']['active_tween_count'] = active
@@ -195,13 +284,24 @@ def tween_schedule(owner, tween):
         profile['counters']['hidden_tween_sched_count'] += 1
 
 
+def tween_operation(profile, tween):
+    operation_id = getattr(tween, '_profile_operation_id', None)
+    return profile['operation_by_id'].get(operation_id)
+
+
 def tween_timing(owner, tween, scheduled, previous):
     profile = state(owner)
     if profile is None or scheduled is None:
         return
     now = time.perf_counter()
-    profile['samples']['sched_delay_ms'].append(max(0., (now-scheduled)*1000))
-    profile['samples']['gap_ms'].append((now-previous)*1000)
+    delay = max(0., (now-scheduled)*1000)
+    gap = (now-previous)*1000
+    profile['samples']['sched_delay_ms'].append(delay)
+    profile['samples']['gap_ms'].append(gap)
+    operation = tween_operation(profile, tween)
+    if operation is not None:
+        operation['sched_delay_ms'].append(delay)
+        operation['gap_ms'].append(gap)
 
 
 def tween_update(owner, tween, elapsed):
@@ -215,3 +315,7 @@ def tween_update(owner, tween, elapsed):
     profile['visibility'][category]['update_count'] += 1
     if category in ('unmapped', 'mapped_outside_viewport'):
         profile['counters']['hidden_tween_update_ms'] += elapsed
+    operation = tween_operation(profile, tween)
+    if operation is not None:
+        operation['tween_update_ms_total'] += elapsed
+        operation['tween_update_count'] += 1

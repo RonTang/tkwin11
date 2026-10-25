@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 from .motion import Tween
+from . import profiling
 
 
 class SmoothScroll:
@@ -15,18 +16,26 @@ class SmoothScroll:
         total=max(1,float(region[3])-float(region[1])) if len(region)==4 else 1
         return total,max(0,total-self.canvas.winfo_height())
     def direct(self,*args):
-        self.tween.cancel();return self.canvas.yview(*args)
+        with profiling.span(self.canvas,'smooth_scroll.direct','scroll'):
+            self.tween.cancel();return self.canvas.yview(*args)
     def wheel(self,delta):
-        total,limit=self.bounds()
-        current=self.canvas.yview()[0]*total
-        base=self.target if self.tween.job is not None else current
-        resources=getattr(self.canvas._root(),'_dpi_resources',None)
-        scale=resources.window_dpi(self.canvas.winfo_toplevel())/96 if resources else 1
-        target=max(0,min(limit,base-delta/120*48*scale))
-        if abs(target-base)<.01:return False
-        self.target=target
-        self.tween.start(current,target,lambda y:self.canvas.yview_moveto(y/total),duration=167)
-        return True
+        with profiling.span(self.canvas,'smooth_scroll.wheel','scroll'):
+            total,limit=self.bounds()
+            current=self.canvas.yview()[0]*total
+            base=self.target if self.tween.job is not None else current
+            resources=getattr(self.canvas._root(),'_dpi_resources',None)
+            scale=resources.window_dpi(self.canvas.winfo_toplevel())/96 if resources else 1
+            target=max(0,min(limit,base-delta/120*48*scale))
+            if abs(target-base)<.01:return False
+            self.target=target
+            marked=[False]
+            def update(y):
+                self.canvas.yview_moveto(y/total)
+                if not marked[0]:
+                    marked[0]=True
+                    profiling.operation_mark(self.canvas)
+            self.tween.start(current,target,update,duration=167)
+            return True
 
 
 class AutoScrollbar(ttk.Scrollbar):
