@@ -244,7 +244,7 @@ class SwitchController:
         self.widget.bindtags(tuple(tag for tag in self.widget.bindtags() if tag!=self.tag))
         for event,binding in self._bindings:
             self.widget.unbind_class(self.tag,event)
-            self.widget.deletecommand(binding)
+            self.root.deletecommand(binding)
         self.widget.deletecommand(self._trace_command)
         if self.tk.call('info','commands',self.path):self.tk.call('rename',self.path,'')
         delete_callback(self.tk,self._proxy_dispatch)
