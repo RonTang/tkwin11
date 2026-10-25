@@ -130,8 +130,8 @@ def _icon_coverage(shapes, extent):
 
 def icon(root, name, size=20, color=None, background=None):
     root = root._root()
-    color,background = color or PALETTE['muted'], background or PALETTE['bg']
-    key=(name,size,color,background)
+    color = color or PALETTE['muted']
+    key=(name,size,color)
     cache=getattr(root,'_switch_icon_cache',None)
     if cache is None: cache=root._switch_icon_cache={}
     if key in cache:return cache[key]

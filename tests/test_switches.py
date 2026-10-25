@@ -3,6 +3,7 @@ from tkinter import ttk
 
 import tkwin11 as ui
 from tk_support import TkTestCase
+from tkwin11.core import icon
 from tkwin11.switches import attach_switch, frame
 
 
@@ -105,6 +106,21 @@ class SwitchTests(TkTestCase):
         self.assertEqual(pixels(second_controller.slot['image']), pixels(frame(self.root, 0)))
         first.destroy()
         second.destroy()
+
+    def test_icon_cache_uses_pixel_identity_not_background(self):
+        first = icon(self.root, 'edit', 16, color='#606060', background='#EEF5F9')
+        second = icon(self.root, 'edit', 16, color='#606060', background='#E4EBF0')
+        self.assertIs(second, first)
+        factory = self.root._dpi_resources.image_factories[str(first)]
+        self.assertEqual(factory.cache_key, ('icon', 'edit', 16, '#606060'))
+        scaled = factory(1.5)
+        expected = icon(self.root, 'edit', 24, color='#606060', background='#FDFEFE')
+        self.assertEqual(pixels(scaled), pixels(expected))
+        for image in (scaled, expected):
+            for y in range(image.height()):
+                for x in range(image.width()):
+                    self.assertEqual(bool(image.tk.call(image, 'transparency', 'get', x, y)),
+                                     bool(expected.tk.call(expected, 'transparency', 'get', x, y)))
 
     def test_root_destroy_cleans_switch_callbacks(self):
         widget, controller = self.controller()
