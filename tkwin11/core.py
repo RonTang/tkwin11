@@ -68,17 +68,24 @@ def _patch(root, fill, border, surrounding, radius, height=80, width=192):
 
 
 def _raster(root, width, height, sample, transparent=None):
+    from contextlib import nullcontext
+    from .profiling import current_frame
     from .render import _png
     # One RGBA PNG instead of a hex-string put plus a transparency_set call per
     # background pixel; uniform 2x2 samples (most pixels) skip the averaging.
     transparent = tuple(transparent) if transparent is not None else None
+    collector = current_frame(root)
     rgba = bytearray()
-    for y in range(height):
-        for x in range(width):
-            a,b,c,d = [sample(x+dx,y+dy) for dx,dy in ((.25,.25),(.75,.25),(.25,.75),(.75,.75))]
-            pixel = tuple(a) if a==b==c==d else tuple(round((a[i]+b[i]+c[i]+d[i])/4) for i in range(3))
-            rgba.extend(pixel); rgba.append(0 if pixel==transparent else 255)
-    image = tk.PhotoImage(master=root, data=_png(width,height,bytes(rgba)), format='png')
+    with collector.stage('raster_pixels_ms') if collector is not None else nullcontext():
+        for y in range(height):
+            for x in range(width):
+                a,b,c,d = [sample(x+dx,y+dy) for dx,dy in ((.25,.25),(.75,.25),(.25,.75),(.75,.75))]
+                pixel = tuple(a) if a==b==c==d else tuple(round((a[i]+b[i]+c[i]+d[i])/4) for i in range(3))
+                rgba.extend(pixel); rgba.append(0 if pixel==transparent else 255)
+    with collector.stage('raster_png_ms') if collector is not None else nullcontext():
+        data = _png(width,height,bytes(rgba))
+    with collector.stage('raster_photo_ms') if collector is not None else nullcontext():
+        image = tk.PhotoImage(master=root, data=data, format='png')
     image._fluent_factory=lambda ratio:_raster(root,max(1,round(width*ratio)),max(1,round(height*ratio)),lambda x,y:sample(x/ratio,y/ratio),transparent)
     resources=getattr(root._root(),'_dpi_resources',None)
     if resources is not None:resources.image_factories[str(image)]=image._fluent_factory

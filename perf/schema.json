@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tkwin11.local/perf/m1/schema.json",
+  "title": "tkwin11 M1 raw measurement document (Appendix A)",
+  "description": "One scenario-runner invocation. Times are milliseconds, timestamp_ns is nanoseconds, and raw floating-point precision is retained. Summary values are derived from samples; samples are authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run", "rounds", "summary"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run": {"$ref": "#/$defs/run"},
+    "rounds": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/round"}
+    },
+    "summary": {"$ref": "#/$defs/runSummary"}
+  },
+  "$defs": {
+    "finiteNumber": {
+      "type": "number",
+      "description": "JSON numbers only; NaN and Infinity are not valid JSON measurements."
+    },
+    "nonNegativeNumber": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sampleArray": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonNegativeNumber"}
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["commit", "milestone", "scenario", "repeat", "timestamp_ns", "environment", "profile_enabled"],
+      "properties": {
+        "commit": {"type": "string", "minLength": 1},
+        "milestone": {"const": "M1"},
+        "scenario": {"enum": ["S1", "S2", "S3", "S4", "S5", "S6", "S7"]},
+        "repeat": {"type": "integer", "minimum": 1},
+        "timestamp_ns": {"type": "integer", "minimum": 0},
+        "environment": {
+          "type": "object",
+          "description": "Recorded Windows, Python, Tk, DPI, display and power environment; unavailable values remain explicit rather than being invented."
+        },
+        "profile_enabled": {"type": "boolean"},
+        "candidate": {"type": "string"}
+      }
+    },
+    "round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "round", "pass", "duration_ms", "counters", "timings", "details", "error", "profile"],
+      "properties": {
+        "scenario": {"enum": ["S1", "S2", "S3", "S4", "S5", "S6", "S7"]},
+        "round": {"type": "integer", "minimum": 1},
+        "pass": {"type": "boolean"},
+        "duration_ms": {
+          "anyOf": [
+            {"$ref": "#/$defs/nonNegativeNumber"},
+            {"type": "null"}
+          ]
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/finiteNumber"}
+        },
+        "timings": {
+          "type": "object",
+          "description": "Scenario timings; values may be numbers or arrays of numbers.",
+          "additionalProperties": {
+            "anyOf": [
+              {"$ref": "#/$defs/finiteNumber"},
+              {"type": "array", "items": {"$ref": "#/$defs/finiteNumber"}}
+            ]
+          }
+        },
+        "details": {
+          "type": "object",
+          "description": "Scenario-specific raw details. S6 details.cases entries include channel='update' or 'after'."
+        },
+        "error": {
+          "anyOf": [{"type": "string"}, {"type": "null"}]
+        },
+        "profile": {
+          "anyOf": [
+            {"$ref": "#/$defs/profile"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "counters", "visibility", "frames", "summary"],
+      "properties": {
+        "samples": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frame_cold_ms", "raster_pixels_ms", "raster_png_ms", "raster_photo_ms", "frame_other_ms", "dpi_rebuild_ms", "tween_update_ms", "sched_delay_ms", "gap_ms"],
+          "properties": {
+            "frame_cold_ms": {"$ref": "#/$defs/sampleArray"},
+            "raster_pixels_ms": {"$ref": "#/$defs/sampleArray"},
+            "raster_png_ms": {"$ref": "#/$defs/sampleArray"},
+            "raster_photo_ms": {"$ref": "#/$defs/sampleArray"},
+            "frame_other_ms": {"$ref": "#/$defs/sampleArray"},
+            "dpi_rebuild_ms": {"$ref": "#/$defs/sampleArray"},
+            "tween_update_ms": {"$ref": "#/$defs/sampleArray"},
+            "sched_delay_ms": {"$ref": "#/$defs/sampleArray"},
+            "gap_ms": {"$ref": "#/$defs/sampleArray"}
+          }
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frame_hit_count", "frame_cold_count", "switch_copy_count", "same_frame_copy_count", "dpi_rebuild_count", "tween_update_ms_total", "active_tween_count", "active_tween_count_peak", "hidden_tween_start_count", "hidden_tween_update_ms", "hidden_tween_sched_count"],
+          "properties": {
+            "frame_hit_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "frame_cold_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "switch_copy_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "same_frame_copy_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "dpi_rebuild_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "tween_update_ms_total": {"$ref": "#/$defs/nonNegativeNumber"},
+            "active_tween_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "active_tween_count_peak": {"$ref": "#/$defs/nonNegativeInteger"},
+            "hidden_tween_start_count": {"$ref": "#/$defs/nonNegativeInteger"},
+            "hidden_tween_update_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+            "hidden_tween_sched_count": {"$ref": "#/$defs/nonNegativeInteger"}
+          }
+        },
+        "visibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unmapped", "mapped_outside_viewport", "visible", "destroyed"],
+          "properties": {
+            "unmapped": {"$ref": "#/$defs/visibilityAccount"},
+            "mapped_outside_viewport": {"$ref": "#/$defs/visibilityAccount"},
+            "visible": {"$ref": "#/$defs/visibilityAccount"},
+            "destroyed": {"$ref": "#/$defs/visibilityAccount"}
+          }
+        },
+        "frames": {
+          "type": "array",
+          "description": "Cold-frame records used for per-frame ratios; not a full timestamped event log.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame_cold_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+              "raster_pixels_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+              "raster_png_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+              "raster_photo_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+              "frame_other_ms": {"$ref": "#/$defs/nonNegativeNumber"}
+            },
+            "additionalProperties": true
+          }
+        },
+        "summary": {"$ref": "#/$defs/profileSummary"}
+      }
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "visibilityAccount": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["update_ms", "update_count"],
+      "properties": {
+        "update_ms": {"$ref": "#/$defs/nonNegativeNumber"},
+        "update_count": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "statisticMap": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/finiteNumber"}
+    },
+    "profileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "p95", "mean", "pstdev"],
+      "properties": {
+        "median": {"$ref": "#/$defs/statisticMap"},
+        "p95": {"$ref": "#/$defs/statisticMap"},
+        "mean": {"$ref": "#/$defs/statisticMap"},
+        "pstdev": {"$ref": "#/$defs/statisticMap"}
+      }
+    },
+    "runSummary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["round_count", "passed_count", "failed_count"],
+      "properties": {
+        "round_count": {"$ref": "#/$defs/nonNegativeInteger"},
+        "passed_count": {"$ref": "#/$defs/nonNegativeInteger"},
+        "failed_count": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    }
+  }
+}

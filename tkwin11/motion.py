@@ -3,6 +3,7 @@ import sys
 import time
 import tkinter as tk
 from .tcl_bridge import unbind
+from . import profiling
 
 
 _system_motion=[-10.,True]
@@ -55,13 +56,16 @@ class Tween:
             self._destroy_binding=None
 
     def cancel(self):
+        profiling.tween_stop(self.owner,self)
         self._generation+=1
         if self.job is not None:
             self.owner.after_cancel(self.job)
             self.job=None
 
     def destroyed(self,event):
-        if event.widget is self.owner:self.cancel()
+        if event.widget is self.owner:
+            self.cancel()
+            profiling.tween_stop(self.owner,self,destroyed=True)
 
     def alive(self):
         try:return bool(self.owner.winfo_exists())
@@ -71,12 +75,25 @@ class Tween:
         self.cancel()
         generation=self._generation
         if not enabled(self.owner) or start==end:
-            update(end)
+            began=time.perf_counter()
+            try:update(end)
+            finally:profiling.tween_update(self.owner,self,(time.perf_counter()-began)*1000)
             if done and generation==self._generation and self.alive():done()
             return
+        profiling.tween_start(self.owner,self)
         clock=[time.monotonic()]*2  # effective start, previous frame
+        scheduled=[None]
+        previous=[time.perf_counter()]
         def tick():
-            if generation!=self._generation or not self.alive():return
+            if generation!=self._generation:
+                profiling.tween_stop(self.owner,self)
+                return
+            if not self.alive():
+                profiling.tween_stop(self.owner,self,destroyed=True)
+                return
+            profiling.tween_timing(self.owner,self,scheduled[0],previous[0])
+            scheduled[0]=None
+            previous[0]=time.perf_counter()
             self.job=None
             now=time.monotonic()
             # A frame counts for at most ~two frames of motion: after the event
@@ -86,10 +103,19 @@ class Tween:
             clock[1]=now
             progress=1 if not enabled(self.owner) else min(1,(now-clock[0])*1000/duration)
             amount=progress if linear else ease(progress)
-            update(end if progress>=1 else start+(end-start)*amount)
-            if generation!=self._generation or not self.alive():return
-            if progress<1:self.job=self.owner.after(16,tick)
-            elif done:done()
+            began=time.perf_counter()
+            try:update(end if progress>=1 else start+(end-start)*amount)
+            finally:profiling.tween_update(self.owner,self,(time.perf_counter()-began)*1000)
+            if generation!=self._generation or not self.alive():
+                profiling.tween_stop(self.owner,self)
+                return
+            if progress<1:
+                self.job=self.owner.after(16,tick)
+                scheduled[0]=time.perf_counter()+.016
+                profiling.tween_schedule(self.owner,self)
+            else:
+                profiling.tween_stop(self.owner,self)
+                if done:done()
         tick()
 
 

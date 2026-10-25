@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import tkinter as tk
 from tkinter import ttk
 import tkwin11 as ui
+from tkwin11 import profiling
 from tkwin11.motion import Tween
 from tkwin11.switches import frame
 from scenario_support import (TweenProbe, add_cleanup, drive, milliseconds,
@@ -21,6 +22,18 @@ from scenario_support import (TweenProbe, add_cleanup, drive, milliseconds,
 
 SCENARIOS = {}
 SCENARIO_NAMES = tuple(f'S{index}' for index in range(1, 8))
+
+
+def m1_measurement():
+    return os.environ.get('TKWIN11_M1_MEASURE') == '1'
+
+
+def production_profile(root):
+    return profiling.snapshot(root)
+
+
+def production_update_count(profile):
+    return sum(item['update_count'] for item in profile['visibility'].values())
 
 
 def scenario(name):
@@ -192,9 +205,10 @@ def scenario_s3():
             nonlocal probe
             require(all(item.control.winfo_ismapped() for item in switches),
                     'S3 switches were not mapped')
-            probe = TweenProbe(root, [tween for item in switches
-                                      for tween in (item.controller.animator,
-                                                    item.controller.feedback_animator)])
+            if not m1_measurement():
+                probe = TweenProbe(root, [tween for item in switches
+                                          for tween in (item.controller.animator,
+                                                        item.controller.feedback_animator)])
             for item in switches:
                 item.control.event_generate('<ButtonPress-1>', x=8, y=8)
 
@@ -206,14 +220,25 @@ def scenario_s3():
             for item in switches:
                 require(item.position == 1. and item.variable.get(), 'S3 terminal on state mismatch')
                 require(item.controller.press_amount == 0., 'S3 press did not finish')
-            summary = probe.summary()
-            require(summary['active_tween_count_peak'] >= len(switches),
-                    f"S3 active Tween peak was only {summary['active_tween_count_peak']}")
-            require(summary['tween_update_count'] > len(switches), 'S3 animations did not tick')
+            if probe is not None:
+                summary = probe.summary()
+                per_switch = [probe.stats(item.controller.animator) for item in switches]
+            else:
+                profile = production_profile(root)
+                summary = {} if profile is None else {
+                    'active_tween_count_peak': profile['counters']['active_tween_count_peak'],
+                    'active_sample_count': len(profile['samples']['sched_delay_ms']),
+                    'tween_update_count': production_update_count(profile),
+                }
+                per_switch = []
+            if summary:
+                require(summary['active_tween_count_peak'] >= len(switches),
+                        f"S3 active Tween peak was only {summary['active_tween_count_peak']}")
+                require(summary['tween_update_count'] > len(switches), 'S3 animations did not tick')
             done({
                 'counters': {**summary, 'switch_count': len(switches)},
                 'timings': {},
-                'per_switch': [probe.stats(item.controller.animator) for item in switches],
+                'per_switch': per_switch,
             })
 
         steps(root, [(60, begin), (40, release), (500, finish)])
@@ -255,26 +280,46 @@ def scenario_s4():
             require(observed['unmapped']['visibility'] == 'unmapped', observed)
             require(observed['mapped_outside_viewport']['visibility'] == 'mapped_outside_viewport', observed)
             require(observed['scrolled_outside_viewport']['visibility'] == 'mapped_outside_viewport', observed)
-            probe = TweenProbe(root, [item.controller.feedback_animator for item in switches.values()])
+            if not m1_measurement():
+                probe = TweenProbe(root, [item.controller.feedback_animator
+                                          for item in switches.values()])
             for item in switches.values():
                 item.feedback('hover', True)
 
         def finish():
+            profile = None if probe is not None else production_profile(root)
             for key, item in switches.items():
-                stats = probe.stats(item.controller.feedback_animator)
-                observed[key].update(stats)
-                observed[key]['post_start_update_count'] = max(0, stats['update_count']-1)
+                if probe is not None:
+                    stats = probe.stats(item.controller.feedback_animator)
+                    observed[key].update(stats)
+                    observed[key]['post_start_update_count'] = max(0, stats['update_count']-1)
+                    require(stats['update_count'] >= 1, f'S4 {key} had no update')
                 observed[key]['terminal_visibility'] = visibility(item.control)
                 require(item.controller.hover_amount == 1., f'S4 {key} hover terminal mismatch')
-                require(stats['update_count'] >= 1, f'S4 {key} had no update')
-            done({
-                'counters': {'hidden_tween_start_count': len(switches),
-                             'hidden_update_count': sum(item['update_count'] for item in observed.values()),
-                             'hidden_post_start_update_count': sum(item['post_start_update_count']
-                                                                  for item in observed.values())},
-                'timings': {},
-                'widgets': observed,
-            })
+            if probe is not None:
+                counters = {
+                    'hidden_tween_start_count': len(switches),
+                    'hidden_update_count': sum(item['update_count'] for item in observed.values()),
+                    'hidden_post_start_update_count': sum(item['post_start_update_count']
+                                                         for item in observed.values()),
+                }
+            elif profile is not None:
+                hidden = [profile['visibility'][name]
+                          for name in ('unmapped', 'mapped_outside_viewport')]
+                hidden_update_count = sum(item['update_count'] for item in hidden)
+                require(profile['counters']['hidden_tween_start_count'] >= len(switches),
+                        'S4 production profile missed hidden Tween starts')
+                require(all(item['update_count'] >= 1 for item in hidden),
+                        f"S4 production profile missed hidden updates: {profile['visibility']}")
+                counters = {
+                    'hidden_tween_start_count': profile['counters']['hidden_tween_start_count'],
+                    'hidden_update_count': hidden_update_count,
+                    'hidden_post_start_update_count': max(
+                        0, hidden_update_count-profile['counters']['hidden_tween_start_count']),
+                }
+            else:
+                counters = {}
+            done({'counters': counters, 'timings': {}, 'widgets': observed})
 
         steps(root, [(100, scroll), (100, begin), (350, finish)])
 
@@ -304,14 +349,21 @@ def scenario_s5():
         ]
         factory_results = []
         images = []
+        resources = root._dpi_resources
         for name, index, options in states:
             source = frame(root, index, **options)
             images.append(source)
-            require(str(source) in root._dpi_resources.image_factories,
+            require(str(source) in resources.image_factories,
                     f'S5 missing factory registration for {name}')
             for ratio in (1., 1.5, 2.):
                 stamp = milliseconds()
-                rendered = source._fluent_factory(ratio)
+                if ratio == 1.:
+                    rendered = source._fluent_factory(ratio)
+                else:
+                    dpi = round(resources.base_dpi*ratio)
+                    resources.image(str(source), dpi)
+                    key = (getattr(source._fluent_factory, 'cache_key', source._fluent_factory), dpi)
+                    rendered = resources.render_cache[key]
                 elapsed = milliseconds()-stamp
                 images.append(rendered)
                 expected = (max(1, round(source.width()*ratio)),
@@ -398,46 +450,116 @@ def scenario_s6():
 
         def initial():
             nonlocal probe
-            probe = TweenProbe(root, [controller.feedback_animator])
+            if not m1_measurement():
+                probe = TweenProbe(root, [controller.feedback_animator])
+
+        def mark(case):
+            if probe is not None:
+                record = probe.records[controller.feedback_animator]
+                case['_update_offset'] = len(record['update_ms'])
+            else:
+                profile = production_profile(root)
+                case['_update_offset'] = 0 if profile is None else len(profile['samples']['tween_update_ms'])
+                case['_gap_offset'] = 0 if profile is None else len(profile['samples']['gap_ms'])
+                case['_sched_offset'] = 0 if profile is None else len(profile['samples']['sched_delay_ms'])
+
+        def update_totals():
+            if probe is not None:
+                record = probe.records[controller.feedback_animator]
+                return record['update_count'], sum(record['update_ms'])
+            profile = production_profile(root)
+            if profile is None:
+                return None, None
+            return (production_update_count(profile),
+                    profile['counters']['tween_update_ms_total'])
 
         definitions = [(50, initial)]
-        for index, requested in enumerate((5, 25, 60)):
-            case = {'requested_block_ms': requested}
-            cases.append(case)
-            def begin(case=case, index=index):
-                case['update_offset'] = probe.records[controller.feedback_animator]['update_count']
-                case['scheduled_for_ms'] = milliseconds()+20
-                def block():
-                    case['block_delay_ms'] = milliseconds()-case['scheduled_for_ms']
-                    stamp = milliseconds()
-                    time.sleep(case['requested_block_ms']/1000)
-                    case['actual_sleep_ms'] = milliseconds()-stamp
-                    case['sleep_end_ms'] = milliseconds()
-                    def resumed():
-                        case['after_zero_delay_ms'] = milliseconds()-case['sleep_end_ms']
-                    root.after(0, resumed)
-                root.after(20, block)
-                switch.feedback('hover', bool(index % 2 == 0))
-            def check(case=case, index=index):
-                target = float(index % 2 == 0)
-                require(controller.hover_amount == target,
-                        f"S6 {case['requested_block_ms']} ms hover terminal mismatch")
-                require('after_zero_delay_ms' in case, 'S6 blocker did not run')
-                require(case['actual_sleep_ms'] >= case['requested_block_ms']*.75,
-                        f"S6 sleep too short: {case}")
-                timestamps = probe.records[controller.feedback_animator]['update_timestamps_ms']
-                sample = timestamps[case['update_offset']:]
-                case['update_count'] = len(sample)
-                case['max_update_gap_ms'] = max((b-a for a, b in zip(sample, sample[1:])), default=0.)
-                case.pop('update_offset')
-                case.pop('scheduled_for_ms')
-                case.pop('sleep_end_ms')
-            definitions.extend([(0, begin), (400, check)])
+        for group, channel in (('S6a', 'update'), ('S6b', 'after')):
+            for index, requested in enumerate((5, 25, 60)):
+                case = {'case': group, 'channel': channel, 'requested_block_ms': requested}
+                cases.append(case)
+                def begin(case=case, index=index):
+                    mark(case)
+                    if case['channel'] == 'update':
+                        original = controller.renderer
+                        case['update_callback_injected'] = False
+                        def render(value):
+                            controller.renderer = original
+                            original(value)
+                            case['update_callback_injected'] = True
+                            stamp = milliseconds()
+                            time.sleep(case['requested_block_ms']/1000)
+                            case['actual_sleep_ms'] = milliseconds()-stamp
+                        controller.renderer = render
+                    else:
+                        case['scheduled_for_ms'] = milliseconds()+20
+                        def block():
+                            case['block_delay_ms'] = milliseconds()-case['scheduled_for_ms']
+                            before_count, before_ms = update_totals()
+                            stamp = milliseconds()
+                            time.sleep(case['requested_block_ms']/1000)
+                            case['actual_sleep_ms'] = milliseconds()-stamp
+                            after_count, after_ms = update_totals()
+                            if before_count is not None:
+                                case['update_count_during_after_block'] = after_count-before_count
+                                case['update_ms_during_after_block'] = after_ms-before_ms
+                            case['sleep_end_ms'] = milliseconds()
+                            def resumed():
+                                case['after_zero_delay_ms'] = milliseconds()-case['sleep_end_ms']
+                            root.after(0, resumed)
+                        root.after(20, block)
+                    switch.feedback('hover', bool(index % 2 == 0))
+                def check(case=case, index=index):
+                    target = float(index % 2 == 0)
+                    require(controller.hover_amount == target,
+                            f"S6 {case['channel']} {case['requested_block_ms']} ms hover terminal mismatch")
+                    require(case['actual_sleep_ms'] >= case['requested_block_ms']*.75,
+                            f"S6 sleep too short: {case}")
+                    if probe is not None:
+                        record = probe.records[controller.feedback_animator]
+                        updates = record['update_ms'][case['_update_offset']:]
+                        timestamps = record['update_timestamps_ms'][case['_update_offset']:]
+                        case['max_update_gap_ms'] = max(
+                            (b-a for a, b in zip(timestamps, timestamps[1:])), default=0.)
+                    else:
+                        profile = production_profile(root)
+                        updates = [] if profile is None else profile['samples']['tween_update_ms'][case['_update_offset']:]
+                        if profile is not None:
+                            gaps = profile['samples']['gap_ms'][case['_gap_offset']:]
+                            delays = profile['samples']['sched_delay_ms'][case['_sched_offset']:]
+                            case['max_update_gap_ms'] = max(gaps, default=0.)
+                            case['max_sched_delay_ms'] = max(delays, default=0.)
+                    if probe is not None or profiling.enabled():
+                        case['update_count'] = len(updates)
+                        case['max_update_callback_ms'] = max(updates, default=0.)
+                        require(case['update_count'] > 0, f"S6 had no updates: {case}")
+                    if case['channel'] == 'update':
+                        require(case['update_callback_injected'], 'S6a update blocker did not run')
+                        if 'max_update_callback_ms' in case:
+                            require(case['max_update_callback_ms'] >= case['requested_block_ms']*.75,
+                                    f"S6a block was not attributed to update: {case}")
+                    else:
+                        require('after_zero_delay_ms' in case, 'S6b blocker did not run')
+                        if 'update_count_during_after_block' in case:
+                            require(case['update_count_during_after_block'] == 0
+                                    and case['update_ms_during_after_block'] == 0.,
+                                    f"S6b after block was attributed to update: {case}")
+                    for key in tuple(case):
+                        if key.startswith('_'):
+                            case.pop(key)
+                    case.pop('scheduled_for_ms', None)
+                    case.pop('sleep_end_ms', None)
+                definitions.extend([(0, begin), (400, check)])
 
         def finish():
-            done({'counters': {'injected_block_count': len(cases)},
+            done({'counters': {
+                      'injected_block_count': len(cases),
+                      'update_injected_block_count': sum(case['channel'] == 'update' for case in cases),
+                      'after_injected_block_count': sum(case['channel'] == 'after' for case in cases),
+                  },
                   'timings': {}, 'cases': cases,
-                  'blocking_method': 'root.after + time.sleep on Tk main thread'})
+                  'blocking_method': 'S6a: inside Tween update; S6b: independent root.after; '
+                                     'both use time.sleep on the Tk main thread'})
 
         steps(root, [*definitions, (0, finish)])
 
@@ -638,7 +760,9 @@ def round_result(name, index, result=None, error=None, began=None):
         'scenario': name, 'round': index, 'pass': error is None,
         'duration_ms': milliseconds()-began if began is not None else None,
         'counters': result.get('counters', {}), 'timings': result.get('timings', {}),
-        'details': {key: value for key, value in result.items() if key not in ('counters', 'timings')},
+        'profile': result.get('profile'),
+        'details': {key: value for key, value in result.items()
+                    if key not in ('counters', 'timings', 'profile')},
         'error': error,
     }
 
@@ -684,9 +808,10 @@ def positive(value):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='M0 real Tk scenarios S1-S7')
+    parser = argparse.ArgumentParser(description='M0/M1 real Tk scenarios S1-S7')
     parser.add_argument('--scenario', choices=('all', *SCENARIO_NAMES), default='all')
     parser.add_argument('--repeat', type=positive, default=1)
+    parser.add_argument('--milestone', choices=('M0', 'M1'), default='M0')
     parser.add_argument('--output', help="raw JSON path, or '-' for stdout")
     parser.add_argument('--_s1-worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -712,10 +837,14 @@ def main(argv=None):
     document = {
         'schema_version': 1,
         'run': {
-            'commit': commit(), 'milestone': 'M0', 'scenario': args.scenario,
+            'commit': commit(), 'milestone': args.milestone, 'scenario': args.scenario,
             'repeat': args.repeat, 'timestamp_ns': time.time_ns(),
-            'environment': environment(), 'profile_enabled': False,
-            'measurement_scope': 'M0 observable scenario counters/timings; not M1 production profile',
+            'environment': environment(), 'profile_enabled': profiling.enabled(),
+            'measurement_scope': (
+                'M1 production profile samples/counters/visibility/frames (when enabled) '
+                'plus scenario counters/timings' if args.milestone == 'M1' else
+                'M0 observable scenario counters/timings; not M1 production profile'
+            ),
         },
         'rounds': rounds,
         'summary': {'round_count': len(rounds), 'passed_count': len(rounds)-failed,
@@ -724,7 +853,8 @@ def main(argv=None):
     output = args.output
     if output is None:
         stamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-        output = Path(__file__).resolve().parents[1]/'perf'/'results'/'m0'/f'scenarios_{args.scenario}_{stamp}.json'
+        output = (Path(__file__).resolve().parents[1]/'perf'/'results'/args.milestone.lower()
+                  /f'scenarios_{args.scenario}_{stamp}.json')
     try:
         text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False)+'\n'
         if str(output) == '-':

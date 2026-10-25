@@ -191,13 +191,16 @@ class Resources:
         return self.images[key]
 
     def refresh_image(self,name,dpi):
+        from .profiling import FrameCollector
         target=self.images[(name,dpi)]
         factory=self.image_factories.get(name)
         if factory is not None:
             key=(getattr(factory,'cache_key',factory),dpi)
             rendered=self.render_cache.get(key)
             if rendered is None:
-                rendered=factory(dpi/self.base_dpi);self.render_cache[key]=rendered
+                with FrameCollector(self.root,'dpi',{'name':name,'dpi':dpi}):
+                    rendered=factory(dpi/self.base_dpi)
+                self.render_cache[key]=rendered
                 if len(self.render_cache)>512:self.render_cache.popitem(last=False)
             else:self.render_cache.move_to_end(key)
             self.tk.call(target,'blank');self.tk.call(target,'copy',str(rendered),'-shrink')

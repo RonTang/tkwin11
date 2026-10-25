@@ -1,6 +1,7 @@
 """Standard-library helpers for real Tk scenarios; never pumps events directly."""
 import time
 import tkinter as tk
+from tkwin11 import profiling
 
 
 def milliseconds():
@@ -90,6 +91,11 @@ def drive(root, start, timeout_ms=15000):
                 cleanup()
             except (tk.TclError, RuntimeError):
                 pass
+        result = outcome.get('result')
+        if isinstance(result, dict):
+            profile = profiling.snapshot(root)
+            if profile is not None:
+                result['profile'] = profile
         try:
             root.destroy()
         except tk.TclError:

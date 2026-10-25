@@ -6,6 +6,7 @@ from .tcl_bridge import install_proxy, delete_callback, on_map
 from .core import PALETTE, _raster, _rgb
 from .dpi import additive_styles
 from .motion import Tween, blend
+from . import profiling
 
 
 def frame(root,index,*,hover=False,pressed=False,disabled=False,focus=False,square=False,hover_amount=None,press_amount=None):
@@ -15,29 +16,33 @@ def frame(root,index,*,hover=False,pressed=False,disabled=False,focus=False,squa
     h=0 if disabled else round((float(hover) if hover_amount is None else hover_amount)*4)/4
     p=0 if disabled else round((float(pressed) if press_amount is None else press_amount)*4)/4
     key=(scale,index,h,p,disabled,focus,square,PALETTE['accent'])
-    if key in root._switch_frames:return root._switch_frames[key]
-    t=index/12
-    bg=PALETTE['bg'];accent=PALETTE['disabled'] if disabled else PALETTE['accent']
-    if not disabled:accent=blend(blend(accent,PALETTE['accent_hover'],h),'#3184CA',p)
-    track=_rgb(blend(bg,accent,t));border=_rgb(blend('#A0A0A0' if disabled else '#707070',accent,t))
-    knob=_rgb(blend('#A0A0A0' if disabled else '#606060','#FFFFFF',t));background=_rgb(bg)
-    radius=6+max(h,p)
-    def sample(x,y):
-        x,y=x/scale,y/scale
-        focus_edge=math.hypot(max(abs(x-(20 if square else 23))-(18 if square else 20),0),max(abs(y-(13 if square else 14))-11,0))
-        if focus and not disabled and (1 if square else 2)<focus_edge<=(2 if square else 3):return _rgb(PALETTE['fg'])
-        if square:
-            if not (3<=x<=37 and 3<=y<=23):return background
-            center=13+14*t;half=7+h+p
-            if abs(x-center)<=half and abs(y-13)<=7+h:return _rgb('#F7F8FA' if disabled else '#FFFFFF')
-            return _rgb(blend('#D9DEE6' if disabled else blend('#9B9DA7','#858E9C',h),accent,t))
-        distance=math.hypot(x-min(max(x,13),33),y-14)
-        if distance>10:return background
-        center=13+20*t
-        cx=min(max(x,center-1.5*p),center+1.5*p)
-        if math.hypot(x-cx,y-14)<radius:return knob
-        return border if distance>9 else track
-    image=_raster(root,round((40 if square else 46)*scale),round((26 if square else 28)*scale),sample)
+    if key in root._switch_frames:
+        profiling.frame_hit(root)
+        return root._switch_frames[key]
+    with profiling.FrameCollector(root,'switch',{'scale':scale,'index':index,'hover':h,'press':p,
+                                                 'disabled':disabled,'focus':focus}):
+        t=index/12
+        bg=PALETTE['bg'];accent=PALETTE['disabled'] if disabled else PALETTE['accent']
+        if not disabled:accent=blend(blend(accent,PALETTE['accent_hover'],h),'#3184CA',p)
+        track=_rgb(blend(bg,accent,t));border=_rgb(blend('#A0A0A0' if disabled else '#707070',accent,t))
+        knob=_rgb(blend('#A0A0A0' if disabled else '#606060','#FFFFFF',t));background=_rgb(bg)
+        radius=6+max(h,p)
+        def sample(x,y):
+            x,y=x/scale,y/scale
+            focus_edge=math.hypot(max(abs(x-(20 if square else 23))-(18 if square else 20),0),max(abs(y-(13 if square else 14))-11,0))
+            if focus and not disabled and (1 if square else 2)<focus_edge<=(2 if square else 3):return _rgb(PALETTE['fg'])
+            if square:
+                if not (3<=x<=37 and 3<=y<=23):return background
+                center=13+14*t;half=7+h+p
+                if abs(x-center)<=half and abs(y-13)<=7+h:return _rgb('#F7F8FA' if disabled else '#FFFFFF')
+                return _rgb(blend('#D9DEE6' if disabled else blend('#9B9DA7','#858E9C',h),accent,t))
+            distance=math.hypot(x-min(max(x,13),33),y-14)
+            if distance>10:return background
+            center=13+20*t
+            cx=min(max(x,center-1.5*p),center+1.5*p)
+            if math.hypot(x-cx,y-14)<radius:return knob
+            return border if distance>9 else track
+        image=_raster(root,round((40 if square else 46)*scale),round((26 if square else 28)*scale),sample)
     root._switch_frames[key]=image
     return image
 
@@ -165,7 +170,11 @@ class SwitchController:
         states=self.tk.splitlist(self.native('state'))
         focus='focus' in states and getattr(self.root,'_switch_keyboard_focus',False)
         image=frame(self.root,index,disabled='disabled' in states,focus=focus,square=self.square,hover_amount=self.hover_amount,press_amount=self.press_amount)
+        repeated=profiling.enabled() and image is getattr(self,'_profile_last_frame',None)
         self.tk.call(self.slot['image'],'copy',image)
+        if profiling.enabled():
+            profiling.switch_copy(self.root,repeated)
+            self._profile_last_frame=image
 
     def feedback(self,attribute,value):
         setattr(self,attribute,value)

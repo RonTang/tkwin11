@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "milestone": "M1",
+  "status": "frozen_before_measurement",
+  "description": "M1 go/no-go rules. All thresholds and noise definitions are fixed before viewing candidate results; smoke and other nonformal collections cannot release a milestone.",
+  "units": "ms",
+  "percentile": "linear interpolation at (n-1)*q over sorted values",
+  "rules": [
+    {
+      "id": "S1.single_cold_frame",
+      "scenario": "S1",
+      "metric": "profile.samples.frame_cold_ms",
+      "aggregation": "pool ON samples across measured rounds",
+      "statistic": "p95",
+      "operator": "<=",
+      "threshold": 50.0,
+      "on_failure": "M3A_candidate"
+    },
+    {
+      "id": "S1.cumulative_cold_frames",
+      "scenario": "S1",
+      "metric": "sum(profile.samples.frame_cold_ms) per round",
+      "aggregation": "one cumulative value per ON round",
+      "statistic": "p95",
+      "operator": "<=",
+      "threshold": 50.0,
+      "on_failure": "M3A_candidate"
+    },
+    {
+      "id": "S5.cumulative_dpi_rebuild",
+      "scenario": "S5",
+      "metric": "sum(profile.samples.dpi_rebuild_ms) per round",
+      "aggregation": "one cumulative value per ON round",
+      "statistic": "p95",
+      "operator": "<=",
+      "threshold": 50.0,
+      "on_failure": "M3A_candidate"
+    },
+    {
+      "id": "S3.scheduler_delay",
+      "scenario": "S3",
+      "metric": "profile.samples.sched_delay_ms",
+      "aggregation": "pool ON samples across measured rounds",
+      "statistic": "p95",
+      "operator": "<=",
+      "threshold": 33.0,
+      "on_failure": "M4_candidate"
+    },
+    {
+      "id": "S3.tween_update_total",
+      "scenario": "S3",
+      "metric": "profile.counters.tween_update_ms_total per round",
+      "aggregation": "one cumulative value per ON round",
+      "statistic": "p95",
+      "operator": "<=",
+      "threshold": 50.0,
+      "on_failure": "M5_data_only"
+    },
+    {
+      "id": "S2.same_frame_redundancy",
+      "scenario": "S2",
+      "metric": "profile.counters.same_frame_copy_count",
+      "aggregation": "any ON round",
+      "operator": ">",
+      "threshold": 0,
+      "candidate_when_true": "M2",
+      "candidate_when_false": null,
+      "note": "Redundancy alone is not a wall-clock improvement claim."
+    },
+    {
+      "id": "M3B.real_representative_hidden_update",
+      "scenarios": ["S2", "S3", "S6"],
+      "excluded_scenarios": ["S1", "S4", "S5", "S7"],
+      "requirements": {
+        "hidden_tween_start_count": "sum over ON rounds > 0",
+        "hidden_update_share": "median over ON rounds of hidden_tween_update_ms / tween_update_ms_total >= 0.05; zero total update gives a zero share and cannot qualify",
+        "above_noise": "p95 over ON rounds of hidden_tween_update_ms > p95 over pairs of abs(ON duration_ms - OFF duration_ms)"
+      },
+      "combination": "AND within at least one listed real representative scenario",
+      "candidate_when_true": "M3B",
+      "candidate_when_false": null,
+      "note": "S4 is a stress/mechanism scenario and can never independently start M3B."
+    },
+    {
+      "id": "S4.no_independent_release",
+      "scenario": "S4",
+      "role": "stress_and_mechanism_evidence_only",
+      "can_independently_trigger": null,
+      "governor_action": "none"
+    },
+    {
+      "id": "S6.accounting_only",
+      "scenario": "S6",
+      "channels": ["update", "after"],
+      "role": "separate update and after accounting only",
+      "can_start_governor": false,
+      "can_independently_release": false
+    }
+  ],
+  "formal_collection": {
+    "measured_pairs_per_scenario_minimum": 30,
+    "warmup_per_mode_minimum_for_hot_paths": 5,
+    "smoke_allowed": false,
+    "budget_report_label_when_unmet": "NONFORMAL"
+  }
+}
