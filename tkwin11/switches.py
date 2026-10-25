@@ -74,6 +74,7 @@ class SwitchController:
         self.animator=Tween(widget)
         self.feedback_animator=Tween(widget)
         self.hover_amount=self.press_amount=0.
+        self._last_frame=None
         self.on_change=None
         self.renderer=self.draw
         self.hover=self.pressed=False
@@ -170,8 +171,10 @@ class SwitchController:
         states=self.tk.splitlist(self.native('state'))
         focus='focus' in states and getattr(self.root,'_switch_keyboard_focus',False)
         image=frame(self.root,index,disabled='disabled' in states,focus=focus,square=self.square,hover_amount=self.hover_amount,press_amount=self.press_amount)
+        if image is self._last_frame:return
         repeated=profiling.enabled() and image is getattr(self,'_profile_last_frame',None)
         self.tk.call(self.slot['image'],'copy',image)
+        self._last_frame=image
         if profiling.enabled():
             profiling.switch_copy(self.root,repeated)
             self._profile_last_frame=image

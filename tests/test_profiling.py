@@ -52,12 +52,13 @@ class ProfilingTests(TkTestCase):
         for _ in range(60):
             controller.draw(0)
         result = profiling.snapshot(self.root)
-        self.assertEqual(result['counters']['switch_copy_count'], 61)
-        self.assertEqual(result['counters']['same_frame_copy_count'], 60)
+        self.assertEqual(result['counters']['switch_copy_count'], 1)
+        self.assertEqual(result['counters']['same_frame_copy_count'], 0)
         controller.draw(1)
         controller.draw(0)
         result = profiling.snapshot(self.root)
-        self.assertEqual(result['counters']['same_frame_copy_count'], 60)
+        self.assertEqual(result['counters']['switch_copy_count'], 3)
+        self.assertEqual(result['counters']['same_frame_copy_count'], 0)
 
     def test_tween_timing_hidden_accounting_and_terminal_active(self):
         tween = Tween(self.root)
