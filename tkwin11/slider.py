@@ -425,7 +425,7 @@ class ScaleController:
         if self.variable:self.widget.tk.call('trace','remove','variable',self.variable,('write','unset'),self.trace)
         self.widget.deletecommand(self.trace)
         for event,binding in self.bindings:
-            self.widget.unbind_class(self.tag,event);self.widget.deletecommand(binding)
+            self.widget.unbind_class(self.tag,event);self.widget._root().deletecommand(binding)
         self.slot['used']=False
 
 

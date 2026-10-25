@@ -128,7 +128,7 @@ class InputController:
         if self.job is not None:self.widget.after_cancel(self.job)
         if self.shell is not None and self.shell.winfo_exists():unbind(self.shell,'<ButtonPress-1>',self.shell_click)
         for sequence,binding in self.bindings:
-            self.widget.unbind_class(self.tag,sequence);self.widget.deletecommand(binding)
+            self.widget.unbind_class(self.tag,sequence);self.widget._root().deletecommand(binding)
 
 def attach_input(widget):
     if not isinstance(widget,(tk.Text,tk.Entry,tk.Spinbox,ttk.Entry)) or isinstance(widget,ttk.Combobox):return None
