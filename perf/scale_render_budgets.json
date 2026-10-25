@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "milestone": "G1-scale-render-dirty-check",
+  "status": "frozen_before_candidate_measurement",
+  "baseline_commit": "a141063695df294cde4b441b63d154324d25b9e8",
+  "candidate": "Skip ScaleController track rendering and copying only when all inputs to the base-DPI pixels are unchanged, including integer thumb position, quantized thumb radius, geometry, focus, direction, orientation and disabled state. Commit the key only after a successful copy.",
+  "primary": {
+    "scenario": "G5",
+    "operation": "slider_input",
+    "kind": "keyboard_continuous",
+    "control": "ttk.Scale",
+    "metric": "profile ON scale_controller.draw span_totals.total_ms per operation",
+    "paired_processes": 30,
+    "minimum_aggregate_median_reduction_percent": 30.0,
+    "minimum_paired_reduction_bootstrap_95ci_lower_percent": 0.0,
+    "bootstrap_resamples": 10000,
+    "seed": 20250308
+  },
+  "guards": [
+    "Every G5 operation passes its existing value, drawing, visual-terminal and grab assertions in both modes.",
+    "The draw-call count and scenario semantics are unchanged; reducing CPU work must not reduce animation frames or skip a distinct pixel state.",
+    "Profile OFF local first-visual and settled timings remain reported; no perceptual improvement is claimed without a statistically supported difference.",
+    "Unit tests cover pixel equivalence, A-B-A repainting, independent controllers, geometry changes and copy-failure retry.",
+    "All unit tests, S1-S7, G1-G6 and WindowChrome pass with profiling OFF and ON where supported."
+  ],
+  "decision": "ACCEPT only if the primary thresholds and every guard pass. Otherwise remove the production candidate and stop this line of optimization. Exploratory samples cannot accept the candidate."
+}
