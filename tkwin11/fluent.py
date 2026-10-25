@@ -212,9 +212,11 @@ class FluentPage(ScrollArea):
         # Flush only geometry-related deferred work; never pump user events.
         previous=None
         for _ in range(3):
-            self.update_idletasks()
-            widgets=list(descendants(self))
-            geometry=tuple((str(w),w.winfo_width(),w.winfo_height(),w.winfo_reqwidth(),w.winfo_reqheight()) for w in widgets)
+            with profiling.span(self,'fluent.page.prepare.idle','layout',sample=False):
+                self.update_idletasks()
+            with profiling.span(self,'fluent.page.prepare.snapshot','layout',sample=False):
+                widgets=list(descendants(self))
+                geometry=tuple((str(w),w.winfo_width(),w.winfo_height(),w.winfo_reqwidth(),w.winfo_reqheight()) for w in widgets)
             if geometry==previous:break
             previous=geometry
             for widget in widgets:
@@ -222,13 +224,16 @@ class FluentPage(ScrollArea):
                     if widget._wrap_job is not None:
                         widget.after_cancel(widget._wrap_job)
                         widget._wrap_job=None
-                    widget.refresh_wrap()
+                    with profiling.span(self,'fluent.page.prepare.wrap','layout',sample=False):
+                        widget.refresh_wrap()
                 if isinstance(widget,ScrollArea):
                     if widget._job is not None:
                         widget.after_cancel(widget._job)
                         widget._job=None
-                    widget.refresh()
-        self.update_idletasks()
+                    with profiling.span(self,'fluent.page.prepare.scroll','layout',sample=False):
+                        widget.refresh()
+        with profiling.span(self,'fluent.page.prepare.final_idle','layout',sample=False):
+            self.update_idletasks()
 
     @profiling.measure('fluent.page.present','layout')
     def present(self):
