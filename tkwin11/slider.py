@@ -323,6 +323,12 @@ class ScaleController:
         source_track=self.track_key;source_scale=self.scale;radius=self.radius
         a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));visual=self.visual
         focused=self.keyboard and self.widget.instate(['focus'])
+        margin=round(12*source_scale);length=height if vertical else width
+        fraction=max(0,min(1,(visual-a)/(b-a or 1)))
+        position=round(margin+(max(margin,length-margin)-margin)*fraction)
+        rendered_key=(source_width,source_height,source_track,source_scale,position,
+                      round(radius*2)/2,a<=b,focused,disabled,vertical)
+        if rendered_key==getattr(self,'_rendered_key',None):return
         def render(ratio=1):
             width=max(1,round(source_width*ratio));height=max(1,round(source_height*ratio))
             track_size=tuple(max(1,round(v*ratio)) for v in source_track);scale=source_scale*ratio
@@ -361,6 +367,7 @@ class ScaleController:
         image=render()
         self.resources.image_factories[str(image)]=render
         self.widget.tk.call(self.track_image,'copy',image)
+        self._rendered_key=rendered_key
 
     def at(self,event):
         vertical=str(self.widget.cget('orient'))=='vertical';length=self.widget.winfo_height() if vertical else self.widget.winfo_width()
