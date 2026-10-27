@@ -323,12 +323,19 @@ class ScaleController:
         source_track=self.track_key;source_scale=self.scale;radius=self.radius
         a=float(self.widget.cget('from'));b=float(self.widget.cget('to'));visual=self.visual
         focused=self.keyboard and self.widget.instate(['focus'])
-        margin=round(12*source_scale);length=height if vertical else width
         fraction=max(0,min(1,(visual-a)/(b-a or 1)))
-        position=round(margin+(max(margin,length-margin)-margin)*fraction)
-        rendered_key=(source_width,source_height,source_track,source_scale,position,
+        name=str(self.track_image)
+        # Equal source pixels can differ in a DPI-specific image. Include every
+        # existing derivative, including views retained after a monitor move.
+        dpis={self.resources.base_dpi,dpi,*self.resources.image_dpis.get(name,())}
+        positions=[]
+        for target_dpi in sorted(dpis):
+            target_ratio=target_dpi/self.resources.base_dpi
+            margin=round(12*source_scale*target_ratio)
+            length=max(1,round((height if vertical else width)*target_ratio))
+            positions.append((target_dpi,round(margin+(max(margin,length-margin)-margin)*fraction)))
+        rendered_key=(source_width,source_height,source_track,source_scale,tuple(positions),
                       round(radius*2)/2,a<=b,focused,disabled,vertical)
-        if rendered_key==getattr(self,'_rendered_key',None):return
         def render(ratio=1):
             width=max(1,round(source_width*ratio));height=max(1,round(source_height*ratio))
             track_size=tuple(max(1,round(v*ratio)) for v in source_track);scale=source_scale*ratio
@@ -364,6 +371,11 @@ class ScaleController:
             image.tk.call(image,'copy',thumb,'-to',max(0,x-thumb.width()//2),max(0,y-thumb.height()//2))
             return image
         render.cache_key=('scale-track',source_width,source_height,source_track,source_scale,radius,a,b,visual,focused,disabled,vertical)
+        if rendered_key==getattr(self,'_rendered_key',None):
+            # A future DPI view must use the latest continuous value even when
+            # all currently rendered views still have identical pixels.
+            self.resources.image_factories[name]=render
+            return
         image=render()
         self.resources.image_factories[str(image)]=render
         self.widget.tk.call(self.track_image,'copy',image)
