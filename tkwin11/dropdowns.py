@@ -133,7 +133,7 @@ class DropdownController:
         if self.popup is not None and not self.popup._closed:self.popup.close(restore_focus=False)
         for event,command in self.commands:
             self.widget.unbind_class(self.tag,event)
-            self.widget.deletecommand(command)
+            self.widget._root().deletecommand(command)
         if self.tk.call('info','commands',self.path):self.tk.call('rename',self.path,'')
         delete_callback(self.tk,self._proxy_dispatch)
         if self.tk.call('info','commands',self.native_path):self.tk.call('rename',self.native_path,self.path)
