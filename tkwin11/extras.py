@@ -307,7 +307,7 @@ class MenuPopup(tk.Toplevel):
             if suffix:
                 shortcut=tk.Label(row,text=suffix,borderwidth=0,background=PALETTE['bg'],foreground=PALETTE['disabled'] if disabled else PALETTE['muted'])
                 shortcut.pack(side='right',padx=(self.px(28),self.px(4)));widgets.append(shortcut)
-            label=tk.Label(row,text=menu.entrycget(index,'label'),underline=int(menu.entrycget(index,'underline')),anchor='w',borderwidth=0,background=PALETTE['bg'],foreground=foreground)
+            label=tk.Label(row,text=menu.entrycget(index,'label'),underline=self._entry_underline(index),anchor='w',borderwidth=0,background=PALETTE['bg'],foreground=foreground)
             label.pack(side='left',fill='x',expand=True);widgets.append(label)
             self.rows[index]=(row,widgets,disabled,kind)
             for widget in [row,*widgets]:
@@ -377,17 +377,25 @@ class MenuPopup(tk.Toplevel):
         row,widgets,_,_=self.rows[index];row.configure(style='Fluent.PressedMenuRow.TFrame')
         for widget in widgets:widget.configure(background=PALETTE['active'])
         return 'break'
+    def _entry_underline(self,index):
+        # Some menu models report an unset underline as an empty string.
+        # Rendering and keyboard dispatch must agree on a valid character.
+        try:position=int(self.menu.entrycget(index,'underline'))
+        except (TypeError,ValueError):return -1
+        label=str(self.menu.entrycget(index,'label'))
+        return position if 0<=position<len(label) else -1
     def mnemonic(self,event):
         if not event.char or not event.char.isprintable() or event.state & 4:return
         key=event.char.casefold();matches=[]
         for i in self.enabled():
-            label=str(self.menu.entrycget(i,'label'));pos=int(self.menu.entrycget(i,'underline'))
+            label=str(self.menu.entrycget(i,'label'));pos=self._entry_underline(i)
             if 0<=pos<len(label) and label[pos].casefold()==key:matches.append(i)
+        explicit=bool(matches)
         if not matches:matches=[i for i in self.enabled() if str(self.menu.entrycget(i,'label')).casefold().startswith(key)]
         if matches:
             index=matches[(matches.index(self.cursor)+1)%len(matches)] if self.cursor in matches else matches[0]
             self.highlight(index)
-            if len(matches)==1 and int(self.menu.entrycget(index,'underline'))>=0:self.choose(index)
+            if explicit and len(matches)==1:self.choose(index)
         return 'break'
     def hover(self,index):
         if self._hover_job is not None:self.after_cancel(self._hover_job);self._hover_job=None
