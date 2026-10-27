@@ -26,6 +26,8 @@ def enabled(widget):
 
 def ease(progress):
     # Solve x(t) for cubic-bezier(.55,.55,0,1), then evaluate y(t).
+    if progress==0:return 0.
+    if progress==1:return 1.
     lo,hi=0.,1.
     for _ in range(14):
         t=(lo+hi)/2
