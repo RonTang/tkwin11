@@ -6,7 +6,6 @@ from .core import PALETTE, _patch, _raster, _rgb, ScrollArea, icon
 from .motion import Tween, blend, prepare_popup, reveal_popup
 from .window_chrome import WindowChrome
 from .tcl_bridge import unbind
-from . import profiling
 
 WORKSPACE = '#F7FAFC'
 
@@ -111,6 +110,9 @@ class FluentWindowChrome(WindowChrome):
 
     def check_activation(self):
         self._activation_job=None
+        if self._native_moving:
+            self.schedule_activation()
+            return
         focus=self.root.focus_displayof()
         window=focus.winfo_toplevel() if focus is not None else None
         active=window is self.root
@@ -198,7 +200,6 @@ class FluentPage(ScrollArea):
         self.canvas.configure(background=WORKSPACE)
         self.body.configure(style='Workspace.TFrame', padding=round(40*self.winfo_fpixels('1i')/96))
 
-    @profiling.measure('fluent.page.prepare','layout')
     def prepare(self,width,height):
         """Resolve layout outside the viewport before presenting a page."""
         self._page_tween.cancel()
@@ -212,11 +213,9 @@ class FluentPage(ScrollArea):
         # Flush only geometry-related deferred work; never pump user events.
         previous=None
         for _ in range(3):
-            with profiling.span(self,'fluent.page.prepare.idle','layout',sample=False):
-                self.update_idletasks()
-            with profiling.span(self,'fluent.page.prepare.snapshot','layout',sample=False):
-                widgets=list(descendants(self))
-                geometry=tuple((str(w),w.winfo_width(),w.winfo_height(),w.winfo_reqwidth(),w.winfo_reqheight()) for w in widgets)
+            self.update_idletasks()
+            widgets=list(descendants(self))
+            geometry=tuple((str(w),w.winfo_width(),w.winfo_height(),w.winfo_reqwidth(),w.winfo_reqheight()) for w in widgets)
             if geometry==previous:break
             previous=geometry
             for widget in widgets:
@@ -224,24 +223,19 @@ class FluentPage(ScrollArea):
                     if widget._wrap_job is not None:
                         widget.after_cancel(widget._wrap_job)
                         widget._wrap_job=None
-                    with profiling.span(self,'fluent.page.prepare.wrap','layout',sample=False):
-                        widget.refresh_wrap()
+                    widget.refresh_wrap()
                 if isinstance(widget,ScrollArea):
                     if widget._job is not None:
                         widget.after_cancel(widget._job)
                         widget._job=None
-                    with profiling.span(self,'fluent.page.prepare.scroll','layout',sample=False):
-                        widget.refresh()
-        with profiling.span(self,'fluent.page.prepare.final_idle','layout',sample=False):
-            self.update_idletasks()
+                    widget.refresh()
+        self.update_idletasks()
 
-    @profiling.measure('fluent.page.present','layout')
     def present(self):
         resources=getattr(self._root(),'_dpi_resources',None)
         scale=resources.window_dpi(self.winfo_toplevel())/96 if resources else 1
         self.place(x=0,y=0,width=0,height=0,relwidth=1,relheight=1)
         self.lift()
-        profiling.operation_mark(self)
         previous=getattr(self.master,'_fluent_presented_page',None)
         if previous is not None and previous is not self:previous._page_tween.cancel()
         self.master._fluent_presented_page=self

@@ -65,6 +65,22 @@ def check(cls, mode):
         pump()
         root.deiconify()
         pump()
+        assert chrome._restore_animation.job is not None
+        chrome.minimize()
+        pump()
+        assert chrome._restore_animation.job is None
+        root.deiconify()
+        pump()
+        assert chrome._restore_animation.job is not None
+        if mode=='normal':
+            root.state('zoomed')
+            pump()
+            chrome.minimize()
+            pump()
+            assert chrome._restore_zoomed
+            root.deiconify()
+            pump()
+            assert chrome.u.IsZoomed(chrome.hwnd)
         assert not errors, '\n'.join(errors)
         print(f'PASS {cls.__name__} {mode}',flush=True)
     finally:
