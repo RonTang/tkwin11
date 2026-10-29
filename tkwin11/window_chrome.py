@@ -64,7 +64,6 @@ class WindowChrome:
         self._restore_was_iconic=False
         self._restore_prepare_requested=False
         self._restore_zoomed=False
-        self._restore_work_area=None
         self.PROC=ctypes.WINFUNCTYPE(ctypes.c_ssize_t,w.HWND,w.UINT,w.WPARAM,w.LPARAM)
         self.ENUMPROC=ctypes.WINFUNCTYPE(w.BOOL,w.HWND,w.LPARAM)
         self._erase_callback=self.PROC(self.child_window_proc)
@@ -189,7 +188,7 @@ class WindowChrome:
         # Preserve Tk ownership/toolwindow/taskbar semantics for Toplevels.
         self._resize_axes=tuple(bool(v) for v in self.root.resizable())
         self.sync_capabilities()
-        margins=(self.c.c_int*4)(0,0,1,0)
+        margins=(self.c.c_int*4)(0,0,0,0)
         self.dwm.DwmExtendFrameIntoClientArea(self.hwnd,self.c.byref(margins))
         corner=self.c.c_int(2)
         self.dwm.DwmSetWindowAttribute(self.hwnd,33,self.c.byref(corner),self.c.sizeof(corner))
@@ -411,7 +410,7 @@ class WindowChrome:
         else:result=self.u.DefWindowProcW(hwnd,message,wparam,lparam)
         return result
 
-    def begin_erase_guard(self,sidebar_only=False):
+    def begin_erase_guard(self,sidebar_only=False,duration=1000):
         if not self.attached:return
         scope='sidebar' if sidebar_only and self.sidebar is not None else 'all'
         if self._erase_guard_active and getattr(self,'_erase_scope',None)!=scope:self.end_erase_guard()
@@ -427,7 +426,7 @@ class WindowChrome:
                 return True
             callback=self.ENUMPROC(hook)
             self.u.EnumChildWindows(self.hwnd,callback,0)
-        self.u.SetTimer(self.hwnd,self._erase_timer_id,1000,None)
+        self.u.SetTimer(self.hwnd,self._erase_timer_id,duration,None)
 
     def end_erase_guard(self):
         if not self._erase_guard_active:return
@@ -459,7 +458,7 @@ class WindowChrome:
                 self._restore_prepare_requested=True
                 return 0
             if message==0x0112 and wparam&0xfff0==0xf030:  # SC_MAXIMIZE
-                self.begin_erase_guard(sidebar_only=True)
+                self.begin_erase_guard(duration=80)
             elif message==0x0112 and wparam&0xfff0==0xf020:  # SC_MINIMIZE
                 self.remember_restore(hwnd)
                 if not self._restore_animation.busy and self._restore_animation.capture(hwnd):self._restore_pending=True
@@ -684,10 +683,8 @@ class WindowChrome:
 
     def toggle_maximize(self):
         if not all(self.root.resizable()) and self.root.state()!='zoomed':return
-        if self.root.state()!='zoomed':self.begin_erase_guard(sidebar_only=True)
+        if self.root.state()!='zoomed':self.begin_erase_guard(duration=80)
         self.root.state('normal' if self.root.state()=='zoomed' else 'zoomed')
-        self.root.update_idletasks()
-        if self.attached:self.u.RedrawWindow(self.hwnd,None,None,0x0001|0x0080|0x0100)
         self.schedule_cache()
 
     def begin_update(self):
@@ -704,17 +701,9 @@ class WindowChrome:
 
     def remember_restore(self,hwnd):
         self._restore_zoomed=bool(self.u.IsZoomed(hwnd))
-        info=self.work_area()
-        self._restore_work_area=None if info is None else (info.rcWork.left,info.rcWork.top,info.rcWork.right-info.rcWork.left,info.rcWork.bottom-info.rcWork.top)
 
     def prepare_restore(self):
         if not self.attached or not self.u.IsIconic(self.hwnd):return
-        target=self._restore_work_area if self._restore_zoomed else self._restore_animation.origin
-        if target is not None:
-            x,y,width,height=target
-            self.u.SetWindowPos(self.hwnd,None,x,y,width,height,0x0004|0x0010)
-        self.root.update_idletasks()
-        self.u.RedrawWindow(self.hwnd,None,None,0x0001|0x0080|0x0100)
         self.u.ShowWindow(self.hwnd,3 if self._restore_zoomed else 9)
 
     def minimize(self):
@@ -740,7 +729,6 @@ class WindowChrome:
         self._restore_was_iconic=False
         self._restore_prepare_requested=False
         self._restore_zoomed=False
-        self._restore_work_area=None
         self._restore_animation.discard()
         if getattr(self,'hwnd',None):
             self.u.KillTimer(self.hwnd,self._erase_timer_id)
